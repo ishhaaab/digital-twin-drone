@@ -48,9 +48,9 @@ public class TelemetryGraph : MaskableGraphic, DroneUIFX.IFxWidget
         raycastTarget = false;
     }
 
-    protected override void OnValidate()
+#pragma warning disable CS0114
+    protected void OnValidate()
     {
-        base.OnValidate();
         if (capacity < 8) capacity = 8;
         if (capacity > 1024) capacity = 1024;
         if (buffer == null || buffer.Length != capacity)
@@ -71,6 +71,7 @@ public class TelemetryGraph : MaskableGraphic, DroneUIFX.IFxWidget
             SetVerticesDirty();
         }
     }
+#pragma warning restore CS0114
 
     /// Push one sample. Thread-safe only from main thread (called from DroneUIUpdater.Update).
     public void Push(float v)

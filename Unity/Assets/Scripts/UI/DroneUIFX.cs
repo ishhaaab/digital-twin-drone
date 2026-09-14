@@ -46,11 +46,82 @@ public static class DroneUIFX
     static Sprite _circleSprite;
     static Sprite _roundedRectSprite;
 
+    /// Unity's builtin UI sprites (UI/Skin/*.psd) exist in the editor but are
+    /// NOT packed into standalone player builds (verified — player log shows
+    /// "The resource UI/Skin/UISprite.psd could not be loaded"). We fall back to
+    /// procedurally-generated textures so the UI renders identically in both.
     public static Sprite CircleSprite =>
-        _circleSprite ??= Resources.GetBuiltinResource<Sprite>("UI/Skin/Knob.psd");
+        _circleSprite ??= LoadSprite("UI/Skin/Knob.psd") ?? GenerateCircleSprite();
 
     public static Sprite RoundedRectSprite =>
-        _roundedRectSprite ??= Resources.GetBuiltinResource<Sprite>("UI/Skin/UISprite.psd");
+        _roundedRectSprite ??= LoadSprite("UI/Skin/UISprite.psd") ?? GenerateRoundedRectSprite();
+
+    static Sprite LoadSprite(string path)
+    {
+        try { return Resources.GetBuiltinResource<Sprite>(path); }
+        catch { return null; }
+    }
+
+    /// 64x64 rounded-rect texture with an 8px slice border so Image.Type.Sliced
+    /// keeps rounded corners when stretched.
+    static Sprite GenerateRoundedRectSprite()
+    {
+        const int S = 64;
+        var tex = new Texture2D(S, S, TextureFormat.RGBA32, false);
+        tex.name = "ProcRoundedRect";
+        float r = 14f; // corner radius
+        for (int y = 0; y < S; y++)
+        {
+            for (int x = 0; x < S; x++)
+            {
+                // distance from nearest rounded corner → alpha
+                bool top    = y >= S - r;
+                bool bottom = y <= r - 1;
+                bool left   = x <= r - 1;
+                bool right  = x >= S - r;
+
+                float a = 1f;
+                // corner rounding: inside if within radius of the corner centre
+                if ((top && left) || (top && right) || (bottom && left) || (bottom && right))
+                {
+                    float cx = left ? r - 1 : S - r;
+                    float cy = top ? S - r : r - 1;
+                    float dx = x - cx, dy = y - cy;
+                    a = Mathf.Clamp01(r - Mathf.Sqrt(dx * dx + dy * dy));
+                }
+                tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+            }
+        }
+        tex.Apply();
+        var spr = Sprite.Create(tex, new Rect(0, 0, S, S), new Vector2(0.5f, 0.5f), 100f,
+            0u, SpriteMeshType.FullRect, new Vector4(8, 8, 8, 8));
+        spr.name = "ProcRoundedRect";
+        return spr;
+    }
+
+    /// 64x64 circle with soft edge — substitutes UI/Skin/Knob.psd.
+    static Sprite GenerateCircleSprite()
+    {
+        const int S = 64;
+        var tex = new Texture2D(S, S, TextureFormat.RGBA32, false);
+        tex.name = "ProcCircle";
+        float c = (S - 1) / 2f;
+        for (int y = 0; y < S; y++)
+        {
+            for (int x = 0; x < S; x++)
+            {
+                float dx = x - c, dy = y - c;
+                float d = Mathf.Sqrt(dx * dx + dy * dy);
+                float a = Mathf.Clamp01(c + 0.5f - d); // hard edge inside radius
+                tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+            }
+        }
+        tex.Apply();
+        var spr = Sprite.Create(tex, new Rect(0, 0, S, S), new Vector2(0.5f, 0.5f), 100f,
+            0u, SpriteMeshType.FullRect, new Vector4(10, 10, 10, 10));
+        spr.name = "ProcCircle";
+        return spr;
+    }
 
     // ── Shared colour ramps ──────────────────────────────────────────────
     public static readonly Color COL_GREEN  = new Color(0.20f, 0.90f, 0.50f);
@@ -65,17 +136,17 @@ public static class DroneUIFX
     // Backgrounds: very dark graphite/navy, not pure black, to reduce eye strain
     // Cards: slightly lighter slate with subtle border. Accents: muted teal/amber/rose
     // All text: high-contrast white (0.92) vs secondary slate (0.60)
-    public static readonly Color AERO_BG          = new Color(0.06f, 0.08f, 0.10f, 1f);  // #0F1418
-    public static readonly Color AERO_PANEL       = new Color(0.09f, 0.12f, 0.16f, 1f);  // #171E29
-    public static readonly Color AERO_CARD        = new Color(0.11f, 0.15f, 0.20f, 1f);  // #1C2633
-    public static readonly Color AERO_CARD2       = new Color(0.13f, 0.17f, 0.22f, 1f);  // #212C38
-    public static readonly Color AERO_BORDER      = new Color(0.18f, 0.22f, 0.28f, 1f);  // #2E3847
-    public static readonly Color AERO_DIVIDER     = new Color(0.18f, 0.22f, 0.28f, 0.35f);
+    public static readonly Color AERO_BG          = new Color(0.035f, 0.047f, 0.055f, 1f);
+    public static readonly Color AERO_PANEL       = new Color(0.040f, 0.070f, 0.090f, 1f);
+    public static readonly Color AERO_CARD        = new Color(0.045f, 0.085f, 0.110f, 1f);
+    public static readonly Color AERO_CARD2       = new Color(0.060f, 0.105f, 0.135f, 1f);
+    public static readonly Color AERO_BORDER      = new Color(0.105f, 0.190f, 0.235f, 1f);
+    public static readonly Color AERO_DIVIDER     = new Color(0.105f, 0.190f, 0.235f, 0.45f);
     public static readonly Color AERO_TEXT        = new Color(0.92f, 0.93f, 0.95f, 1f);
     public static readonly Color AERO_TEXT_SEC    = new Color(0.62f, 0.68f, 0.74f, 1f);
     public static readonly Color AERO_TEXT_DIM    = new Color(0.48f, 0.53f, 0.60f, 1f);
-    public static readonly Color AERO_ACCENT      = new Color(0.22f, 0.68f, 0.64f, 1f);  // muted teal #38ADA3
-    public static readonly Color AERO_ACCENT_DIM  = new Color(0.22f, 0.68f, 0.64f, 0.15f);
+    public static readonly Color AERO_ACCENT      = new Color(0.20f, 0.78f, 0.88f, 1f);
+    public static readonly Color AERO_ACCENT_DIM  = new Color(0.20f, 0.78f, 0.88f, 0.15f);
     public static readonly Color AERO_AMBER       = new Color(0.86f, 0.62f, 0.22f, 1f);  // #DB9E38
     public static readonly Color AERO_RED         = new Color(0.78f, 0.30f, 0.30f, 1f);  // #C74C4C
     public static readonly Color AERO_RED_BG      = new Color(0.78f, 0.30f, 0.30f, 0.14f);
@@ -356,7 +427,7 @@ public static class DroneUIFX
         lblGO.transform.SetParent(headerGO.transform, false);
         var lbl = lblGO.AddComponent<TextMeshProUGUI>();
         lbl.text = label;
-        lbl.fontSize = 15;
+        lbl.fontSize = 10;
         lbl.fontStyle = FontStyles.Bold;
         lbl.color = new Color(0.6f, 0.72f, 0.85f);
         lbl.alignment = TextAlignmentOptions.MidlineLeft;
@@ -365,7 +436,7 @@ public static class DroneUIFX
         valGO.transform.SetParent(headerGO.transform, false);
         var val = valGO.AddComponent<TextMeshProUGUI>();
         val.text = "0.00";
-        val.fontSize = 17;
+        val.fontSize = 12;
         val.fontStyle = FontStyles.Bold;
         val.color = Color.white;
         val.alignment = TextAlignmentOptions.MidlineRight;
@@ -390,6 +461,63 @@ public static class DroneUIFX
         Stretch((RectTransform)fillGO.transform, 0f);
 
         return new GradientBarFX { fill = fillImg, valueText = val };
+    }
+
+    // ═════════════════════════════════════════════════════════════════════
+    // 8b. Flat horizontal gauge (battery %, generic fraction)
+    // ═════════════════════════════════════════════════════════════════════
+
+    public class HorizontalBarFX : IFxWidget
+    {
+        public Image fill;
+        public Func<float, Color> colorRamp = RampGoodHigh;
+        public float smoothSpeed = 8f;
+        float displayFrac, targetFrac;
+
+        public void SetValue01(float v) => targetFrac = Mathf.Clamp01(v);
+
+        public float Target => targetFrac;
+
+        public void Tick(float dt)
+        {
+            if (fill == null) return;
+            displayFrac = Mathf.Lerp(displayFrac, targetFrac, dt * smoothSpeed);
+            if (Mathf.Abs(displayFrac - targetFrac) < 0.002f) displayFrac = targetFrac;
+            fill.fillAmount = displayFrac;
+            fill.color = colorRamp(displayFrac);
+        }
+    }
+
+    /// Flat horizontal bar (rounded track + filled progress) for text-first readouts
+    /// such as the battery percentage.
+    public static HorizontalBarFX CreateHorizontalBar(Transform parent, string name, float height)
+    {
+        var root = new GameObject(name, typeof(RectTransform));
+        root.transform.SetParent(parent, false);
+        root.AddComponent<LayoutElement>().preferredHeight = height;
+
+        var trackGO = new GameObject("Track", typeof(RectTransform), typeof(Image));
+        trackGO.transform.SetParent(root.transform, false);
+        var trackImg = trackGO.GetComponent<Image>();
+        trackImg.sprite = RoundedRectSprite;
+        trackImg.type = Image.Type.Sliced;
+        trackImg.color = new Color(1f, 1f, 1f, 0.07f);
+        trackImg.raycastTarget = false;
+        Stretch((RectTransform)trackGO.transform, 0f);
+
+        var fillGO = new GameObject("Fill", typeof(RectTransform), typeof(Image));
+        fillGO.transform.SetParent(trackGO.transform, false);
+        var fillImg = fillGO.GetComponent<Image>();
+        fillImg.sprite = RoundedRectSprite;
+        fillImg.type = Image.Type.Filled;
+        fillImg.fillMethod = Image.FillMethod.Horizontal;
+        fillImg.fillOrigin = (int)Image.OriginHorizontal.Left;
+        fillImg.fillAmount = 0f;
+        fillImg.color = AERO_GREEN;
+        fillImg.raycastTarget = false;
+        Stretch((RectTransform)fillGO.transform, 0f);
+
+        return new HorizontalBarFX { fill = fillImg };
     }
 
     // ═════════════════════════════════════════════════════════════════════
@@ -474,7 +602,8 @@ public static class DroneUIFX
         var ptrGO = new GameObject("Pointer", typeof(RectTransform), typeof(Image));
         ptrGO.transform.SetParent(root.transform, false);
         var ptrImg = ptrGO.GetComponent<Image>();
-        ptrImg.color = COL_EMERALD;
+        ptrImg.color = AERO_ACCENT;
+        ptrImg.raycastTarget = false;
         var ptrRT = (RectTransform)ptrGO.transform;
         ptrRT.anchorMin = new Vector2(0.5f, 0f);
         ptrRT.anchorMax = new Vector2(0.5f, 1f);
@@ -491,6 +620,7 @@ public static class DroneUIFX
     public class HorizonFX : IFxWidget
     {
         public RectTransform horizonPlate; // rotates with roll, translates with pitch
+        public RectTransform rollPointer;   // fixed bank-angle needle against the bezel scale
         public float pixelsPerDegreePitch = 4f;
         public float pitchClampDeg = 30f;
         float displayPitch, displayRoll, targetPitch, targetRoll;
@@ -510,11 +640,15 @@ public static class DroneUIFX
                 horizonPlate.localRotation = Quaternion.Euler(0, 0, -displayRoll);
                 horizonPlate.anchoredPosition = new Vector2(0, -displayPitch * pixelsPerDegreePitch);
             }
+            // Bank needle points up when wings level and swings against the fixed scale
+            if (rollPointer != null)
+                rollPointer.localRotation = Quaternion.Euler(0, 0, -displayRoll);
         }
     }
 
     /// Builds a compact circular attitude indicator: sky/ground half-planes that rotate with
-    /// roll and slide with pitch, a fixed aircraft symbol, and a circular mask/bezel.
+    /// roll and slide with pitch, a pitch ladder, a fixed bank scale with swinging needle, a
+    /// fixed aircraft symbol, and a circular mask/bezel.
     public static HorizonFX CreateArtificialHorizon(Transform parent, float diameter)
     {
         var root = new GameObject("ArtificialHorizon", typeof(RectTransform));
@@ -523,16 +657,16 @@ public static class DroneUIFX
         le.preferredWidth = diameter;
         le.preferredHeight = diameter;
 
-        // Bezel glow
-        var glowGO = new GameObject("Glow", typeof(RectTransform), typeof(Image));
-        glowGO.transform.SetParent(root.transform, false);
-        var glowImg = glowGO.GetComponent<Image>();
-        glowImg.sprite = CircleSprite;
-        glowImg.color = new Color(0.3f, 0.65f, 1f, 0.18f);
-        glowImg.raycastTarget = false;
-        var glowRT = (RectTransform)glowGO.transform;
-        glowRT.sizeDelta = new Vector2(diameter * 1.25f, diameter * 1.25f);
-        Center(glowRT);
+        // Fixed bezel disc (behind everything, gives the instrument a rim)
+        var bezelGO = new GameObject("Bezel", typeof(RectTransform), typeof(Image));
+        bezelGO.transform.SetParent(root.transform, false);
+        var bezelImg = bezelGO.GetComponent<Image>();
+        bezelImg.sprite = CircleSprite;
+        bezelImg.color = AERO_CARD2;
+        bezelImg.raycastTarget = false;
+        var bezelRT = (RectTransform)bezelGO.transform;
+        bezelRT.sizeDelta = new Vector2(diameter, diameter);
+        Center(bezelRT);
 
         // Circular mask/viewport
         var vpGO = new GameObject("Viewport", typeof(RectTransform), typeof(Image), typeof(Mask));
@@ -541,20 +675,21 @@ public static class DroneUIFX
         vpGO.GetComponent<Image>().color = Color.white;
         vpGO.GetComponent<Mask>().showMaskGraphic = true;
         var vpRT = (RectTransform)vpGO.transform;
-        vpRT.sizeDelta = new Vector2(diameter, diameter);
+        vpRT.sizeDelta = new Vector2(diameter - 10f, diameter - 10f);
         Center(vpRT);
 
         // Plate (oversized so pitch/roll never reveals empty corners)
         var plateGO = new GameObject("Plate", typeof(RectTransform));
         plateGO.transform.SetParent(vpGO.transform, false);
         var plateRT = (RectTransform)plateGO.transform;
-        plateRT.sizeDelta = new Vector2(diameter * 2f, diameter * 2f);
+        plateRT.sizeDelta = new Vector2(diameter * 2.2f, diameter * 2.2f);
         plateRT.anchorMin = plateRT.anchorMax = new Vector2(0.5f, 0.5f);
         plateRT.anchoredPosition = Vector2.zero;
 
+        // Muted aerospace sky/ground — desaturated, not cartoon colours
         var skyGO = new GameObject("Sky", typeof(RectTransform), typeof(Image));
         skyGO.transform.SetParent(plateGO.transform, false);
-        skyGO.GetComponent<Image>().color = new Color(0.20f, 0.45f, 0.85f);
+        skyGO.GetComponent<Image>().color = new Color(0.10f, 0.19f, 0.28f);
         var skyRT = (RectTransform)skyGO.transform;
         skyRT.anchorMin = new Vector2(0, 0.5f);
         skyRT.anchorMax = new Vector2(1, 1f);
@@ -562,29 +697,122 @@ public static class DroneUIFX
 
         var groundGO = new GameObject("Ground", typeof(RectTransform), typeof(Image));
         groundGO.transform.SetParent(plateGO.transform, false);
-        groundGO.GetComponent<Image>().color = new Color(0.35f, 0.24f, 0.12f);
+        groundGO.GetComponent<Image>().color = new Color(0.13f, 0.12f, 0.10f);
         var groundRT = (RectTransform)groundGO.transform;
         groundRT.anchorMin = new Vector2(0, 0f);
         groundRT.anchorMax = new Vector2(1, 0.5f);
         groundRT.offsetMin = groundRT.offsetMax = Vector2.zero;
 
+        Color ladderCol = new Color(0.92f, 0.93f, 0.95f, 0.55f);
+        int pxPerDeg = 4;
+
+        // Pitch ladder: fixed lines at ±5..±30°, horizontal in plate space so they
+        // roll with the plate and slide with pitch like a real attitude indicator.
+        for (int deg = -30; deg <= 30; deg += 5)
+        {
+            if (deg == 0) continue; // horizon line is drawn separately
+            var lGO = new GameObject($"Ladder{deg:+00;-00}", typeof(RectTransform), typeof(Image));
+            lGO.transform.SetParent(plateGO.transform, false);
+            var lImg = lGO.GetComponent<Image>();
+            lImg.color = ladderCol;
+
+            // Major lines (every 10°) are wider, minors thinner
+            bool major = (deg % 10) == 0;
+            float w = major ? 0.55f : 2.2f;
+            Color c = major ? new Color(0.92f, 0.93f, 0.95f, 0.85f) : ladderCol;
+            lImg.color = c;
+
+            var lRT = (RectTransform)lGO.transform;
+            lRT.anchorMin = lRT.anchorMax = new Vector2(0.5f, 0.5f);
+            lRT.sizeDelta = new Vector2(w, 1.2f);
+            lRT.anchoredPosition = new Vector2(0, deg * pxPerDeg);
+            // major lines span wider than minors (classic AI ladder)
+            if (major) lRT.sizeDelta = new Vector2(diameter * 0.34f, 1.2f);
+        }
+
         var lineGO = new GameObject("HorizonLine", typeof(RectTransform), typeof(Image));
         lineGO.transform.SetParent(plateGO.transform, false);
-        lineGO.GetComponent<Image>().color = Color.white;
+        var lineImg = lineGO.GetComponent<Image>();
+        lineImg.color = new Color(1f, 1f, 1f, 0.95f);
         var lineRT = (RectTransform)lineGO.transform;
         lineRT.anchorMin = new Vector2(0, 0.5f);
         lineRT.anchorMax = new Vector2(1, 0.5f);
         lineRT.sizeDelta = new Vector2(0, 2);
+        lineImg.raycastTarget = false;
 
-        // Fixed aircraft symbol (drawn on root, not on the rotating plate)
-        var symGO = new GameObject("AircraftSymbol", typeof(RectTransform), typeof(Image));
-        symGO.transform.SetParent(root.transform, false);
-        symGO.GetComponent<Image>().color = COL_YELLOW;
-        var symRT = (RectTransform)symGO.transform;
-        symRT.sizeDelta = new Vector2(diameter * 0.5f, 3);
-        Center(symRT);
+        // Fixed bank scale: ticks on the bezel at 0, ±15, ±30
+        Color scaleCol = new Color(0.75f, 0.80f, 0.85f, 0.9f);
+        MakeScaleTick(root.transform, 0f,  diameter / 2f, 6f, scaleCol);
+        MakeScaleTick(root.transform, 15f, diameter / 2f, 4f, scaleCol);
+        MakeScaleTick(root.transform, -15f, diameter / 2f, 4f, scaleCol);
+        MakeScaleTick(root.transform, 30f, diameter / 2f, 3f, scaleCol);
+        MakeScaleTick(root.transform, -30f, diameter / 2f, 3f, scaleCol);
 
-        return new HorizonFX { horizonPlate = plateRT };
+        // Swinging bank needle (rotates against the fixed scale)
+        var ptrGO = new GameObject("RollPointer", typeof(RectTransform), typeof(Image));
+        ptrGO.transform.SetParent(root.transform, false);
+        var ptrImg = ptrGO.GetComponent<Image>();
+        ptrImg.color = AERO_ACCENT;
+        ptrImg.raycastTarget = false;
+        var ptrRT = (RectTransform)ptrGO.transform;
+        ptrRT.sizeDelta = new Vector2(2.5f, diameter * 0.20f);
+        ptrRT.anchorMin = ptrRT.anchorMax = new Vector2(0.5f, 0.5f);
+        ptrRT.anchoredPosition = new Vector2(0, diameter * 0.36f);
+
+        // Fixed aircraft symbol — wing bars + centre dot (drawn on root, not the plate)
+        MakeAircraftSymbol(root.transform, diameter);
+
+        return new HorizonFX { horizonPlate = plateRT, rollPointer = ptrRT };
+    }
+
+    static void MakeScaleTick(Transform parent, float angleDeg, float radius, float len, Color col)
+    {
+        var tGO = new GameObject($"ScaleTick{angleDeg}", typeof(RectTransform), typeof(Image));
+        tGO.transform.SetParent(parent, false);
+        var tImg = tGO.GetComponent<Image>();
+        tImg.color = col;
+        tImg.raycastTarget = false;
+        var tRT = (RectTransform)tGO.transform;
+        tRT.anchorMin = tRT.anchorMax = new Vector2(0.5f, 0.5f);
+        tRT.sizeDelta = new Vector2(1.4f, len);
+        tRT.localRotation = Quaternion.Euler(0, 0, -angleDeg);
+        tRT.anchoredPosition = new Vector2(0, radius - 4f - len * 0.5f);
+    }
+
+    static void MakeAircraftSymbol(Transform parent, float diameter)
+    {
+        Color wingCol = new Color(0.98f, 0.99f, 1f, 0.95f);
+        // left wing
+        var lw = new GameObject("WingL", typeof(RectTransform), typeof(Image));
+        lw.transform.SetParent(parent, false);
+        lw.GetComponent<Image>().color = wingCol;
+        lw.GetComponent<Image>().raycastTarget = false;
+        var lwRT = (RectTransform)lw.transform;
+        lwRT.sizeDelta = new Vector2(diameter * 0.26f, 2f);
+        lwRT.anchorMin = lwRT.anchorMax = new Vector2(0.5f, 0.5f);
+        lwRT.anchoredPosition = new Vector2(-diameter * 0.155f, 0);
+        lwRT.localRotation = Quaternion.Euler(0, 0, 6f);
+        // right wing
+        var rw = new GameObject("WingR", typeof(RectTransform), typeof(Image));
+        rw.transform.SetParent(parent, false);
+        rw.GetComponent<Image>().color = wingCol;
+        rw.GetComponent<Image>().raycastTarget = false;
+        var rwRT = (RectTransform)rw.transform;
+        rwRT.sizeDelta = new Vector2(diameter * 0.26f, 2f);
+        rwRT.anchorMin = rwRT.anchorMax = new Vector2(0.5f, 0.5f);
+        rwRT.anchoredPosition = new Vector2(diameter * 0.155f, 0);
+        rwRT.localRotation = Quaternion.Euler(0, 0, -6f);
+        // centre reference dot
+        var dot = new GameObject("WingDot", typeof(RectTransform), typeof(Image));
+        dot.transform.SetParent(parent, false);
+        var dImg = dot.GetComponent<Image>();
+        dImg.color = new Color(0.98f, 0.99f, 1f, 0.95f);
+        dImg.sprite = CircleSprite;
+        dImg.raycastTarget = false;
+        var dRT = (RectTransform)dot.transform;
+        dRT.sizeDelta = new Vector2(4f, 4f);
+        dRT.anchorMin = dRT.anchorMax = new Vector2(0.5f, 0.5f);
+        dRT.anchoredPosition = new Vector2(0, -2f);
     }
 
     // ═════════════════════════════════════════════════════════════════════
@@ -773,6 +1001,8 @@ public static class DroneUIFX
         bgImg.sprite = RoundedRectSprite;
         bgImg.type = Image.Type.Sliced;
         bgImg.color = AERO_CARD;
+        bgImg.raycastTarget = false;
+        var bgLE = bgGO.AddComponent<LayoutElement>(); bgLE.ignoreLayout = true;
         Stretch((RectTransform)bgGO.transform, 0f);
         // border via outline image behind bg
         var borderGO = new GameObject("Border", typeof(RectTransform), typeof(Image));
@@ -783,6 +1013,7 @@ public static class DroneUIFX
         borderImg.type = Image.Type.Sliced;
         borderImg.color = AERO_BORDER;
         borderImg.raycastTarget = false;
+        borderGO.AddComponent<LayoutElement>().ignoreLayout = true;
         Stretch((RectTransform)borderGO.transform, 0f);
         var innerGO = new GameObject("Inner", typeof(RectTransform), typeof(Image));
         innerGO.transform.SetParent(root.transform, false);
@@ -792,6 +1023,7 @@ public static class DroneUIFX
         innerImg.type = Image.Type.Sliced;
         innerImg.color = AERO_CARD;
         innerImg.raycastTarget = false;
+        innerGO.AddComponent<LayoutElement>().ignoreLayout = true;
         Stretch((RectTransform)innerGO.transform, 1f);
 
         var hl = root.AddComponent<HorizontalLayoutGroup>();
@@ -898,7 +1130,7 @@ public static class DroneUIFX
         var cardLE = card.AddComponent<LayoutElement>();
         cardLE.flexibleWidth = 1;
         cardLE.flexibleHeight = 1;
-        // border
+        // border — ignored by VerticalLayoutGroup
         var borderGO = new GameObject("Border", typeof(RectTransform), typeof(Image));
         borderGO.transform.SetParent(card.transform, false);
         borderGO.transform.SetAsFirstSibling();
@@ -907,6 +1139,7 @@ public static class DroneUIFX
         borderImg.type = Image.Type.Sliced;
         borderImg.color = AERO_BORDER;
         borderImg.raycastTarget = false;
+        borderGO.AddComponent<LayoutElement>().ignoreLayout = true;
         Stretch((RectTransform)borderGO.transform, 0f);
         var innerGO = new GameObject("Inner", typeof(RectTransform), typeof(Image));
         innerGO.transform.SetParent(card.transform, false);
@@ -916,6 +1149,7 @@ public static class DroneUIFX
         innerImg.type = Image.Type.Sliced;
         innerImg.color = AERO_CARD;
         innerImg.raycastTarget = false;
+        innerGO.AddComponent<LayoutElement>().ignoreLayout = true;
         Stretch((RectTransform)innerGO.transform, 1f);
 
         var vl = card.AddComponent<VerticalLayoutGroup>();
@@ -967,7 +1201,7 @@ public static class DroneUIFX
 
         var innerGraphGO = new GameObject("GraphPlot", typeof(RectTransform));
         innerGraphGO.transform.SetParent(graphGO.transform, false);
-        var rt = innerGraphGO.AddComponent<RectTransform>();
+        var rt = innerGraphGO.GetComponent<RectTransform>();
         rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
         rt.offsetMin = new Vector2(8, 8); rt.offsetMax = new Vector2(-8, -8);
         var graph = innerGraphGO.AddComponent<TelemetryGraph>();

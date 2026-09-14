@@ -101,8 +101,11 @@ public class DroneDataReceiver : MonoBehaviour
     [Header("Live Data")]
     public DroneData    latestData       = new DroneData();
     public LatencyStats latencyStats     = new LatencyStats();
-    public bool         newDataAvailable = false;
-    public bool         isConnected      = false;
+    // Written on the RX thread (isConnected also flipped false by the main-thread
+    // watchdog), read on the main thread — volatile keeps the fields visible
+    // across threads without a lock.
+    public volatile bool newDataAvailable = false;
+    public volatile bool isConnected      = false;
 
     [Header("Connection Watchdog")]
     [Tooltip("Mark disconnected after this many seconds without a packet.")]
@@ -112,7 +115,22 @@ public class DroneDataReceiver : MonoBehaviour
     [Tooltip("If any vibration axis exceeds this value, an auto-land is triggered.")]
     public float vibrationThreshold = 60f;
 
+    [Tooltip("Seconds after an auto-land before a new one can be triggered. Stops oscillating vibration from spamming LAND.")]
+    public float vibrationCooldown = 10f;
+
     public bool vibrationAlarmActive { get; private set; } = false;
+
+    /// Seconds since last packet, or -1 if never received. UI presentation helper — not a safety threshold.
+    /// Derived from monotonic Stopwatch clock (safe across threads).
+    public double LastPacketAgeSeconds
+    {
+        get
+        {
+            double lp = lastPacketSeconds; // capture volatile read
+            if (lp < 0) return -1.0;
+            return clock.Elapsed.TotalSeconds - lp;
+        }
+    }
 
     // ── Internals ─────────────────────────────────────────────────────────
     private UdpClient rxClient;
@@ -121,6 +139,7 @@ public class DroneDataReceiver : MonoBehaviour
     private string    latestRaw = "";
     private object    lockObj   = new object();
     private bool      autoLandSent = false;
+    private double    lastAutoLandSeconds = -1.0;   // monotonic clock seconds
     private volatile bool stopRequested = false;
 
     // Monotonic clock shared by the rx thread and main thread (safe to read
@@ -305,14 +324,21 @@ public class DroneDataReceiver : MonoBehaviour
             Mathf.Abs(latestData.vibration_z)
         );
 
-        if (maxVib > vibrationThreshold && !autoLandSent)
+        if (maxVib > vibrationThreshold)
         {
-            Debug.LogWarning($"[Drone] VIBRATION CRITICAL ({maxVib:F1}) — auto-land!");
-            SendCommand("LAND");
-            autoLandSent         = true;
             vibrationAlarmActive = true;
+            // Latch: keep the alarm on while vibration stays hot, but only send
+            // one LAND per cooldown window so oscillating vibration can't spam.
+            if (!autoLandSent &&
+                clock.Elapsed.TotalSeconds - lastAutoLandSeconds > vibrationCooldown)
+            {
+                Debug.LogWarning($"[Drone] VIBRATION CRITICAL ({maxVib:F1}) — auto-land!");
+                SendCommand("LAND");
+                autoLandSent        = true;
+                lastAutoLandSeconds = clock.Elapsed.TotalSeconds;
+            }
         }
-        else if (maxVib <= vibrationThreshold)
+        else
         {
             autoLandSent         = false;
             vibrationAlarmActive = false;

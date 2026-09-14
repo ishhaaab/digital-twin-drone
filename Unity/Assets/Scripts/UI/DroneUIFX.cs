@@ -12,8 +12,6 @@ using TMPro;
 // A small, self-contained widget/animation library used by DroneDashboardUI
 // and DroneUIUpdater to build the "modern HUD" look:
 //   - Radial ring gauges   (battery, motors, latency)
-//   - Glowing pill badge   (armed / disarmed)
-//   - Flight-mode cards    (glow when active)
 //   - Gradient bars        (vibration X/Y/Z)
 //   - Compass tape ribbon  (heading)
 //   - Artificial horizon   (pitch/roll)
@@ -62,6 +60,28 @@ public static class DroneUIFX
     public static readonly Color COL_CYAN   = new Color(0.25f, 0.85f, 0.95f);
     public static readonly Color COL_AMBER  = new Color(1.00f, 0.70f, 0.15f);
     public static readonly Color COL_EMERALD= new Color(0.10f, 0.95f, 0.55f);
+
+    // ── Aerospace GCS palette (professional, desaturated, high-contrast) ─
+    // Backgrounds: very dark graphite/navy, not pure black, to reduce eye strain
+    // Cards: slightly lighter slate with subtle border. Accents: muted teal/amber/rose
+    // All text: high-contrast white (0.92) vs secondary slate (0.60)
+    public static readonly Color AERO_BG          = new Color(0.06f, 0.08f, 0.10f, 1f);  // #0F1418
+    public static readonly Color AERO_PANEL       = new Color(0.09f, 0.12f, 0.16f, 1f);  // #171E29
+    public static readonly Color AERO_CARD        = new Color(0.11f, 0.15f, 0.20f, 1f);  // #1C2633
+    public static readonly Color AERO_CARD2       = new Color(0.13f, 0.17f, 0.22f, 1f);  // #212C38
+    public static readonly Color AERO_BORDER      = new Color(0.18f, 0.22f, 0.28f, 1f);  // #2E3847
+    public static readonly Color AERO_DIVIDER     = new Color(0.18f, 0.22f, 0.28f, 0.35f);
+    public static readonly Color AERO_TEXT        = new Color(0.92f, 0.93f, 0.95f, 1f);
+    public static readonly Color AERO_TEXT_SEC    = new Color(0.62f, 0.68f, 0.74f, 1f);
+    public static readonly Color AERO_TEXT_DIM    = new Color(0.48f, 0.53f, 0.60f, 1f);
+    public static readonly Color AERO_ACCENT      = new Color(0.22f, 0.68f, 0.64f, 1f);  // muted teal #38ADA3
+    public static readonly Color AERO_ACCENT_DIM  = new Color(0.22f, 0.68f, 0.64f, 0.15f);
+    public static readonly Color AERO_AMBER       = new Color(0.86f, 0.62f, 0.22f, 1f);  // #DB9E38
+    public static readonly Color AERO_RED         = new Color(0.78f, 0.30f, 0.30f, 1f);  // #C74C4C
+    public static readonly Color AERO_RED_BG      = new Color(0.78f, 0.30f, 0.30f, 0.14f);
+    public static readonly Color AERO_GREEN       = new Color(0.26f, 0.74f, 0.52f, 1f);
+    // Monospace number colour: slightly cooler white
+    public static readonly Color AERO_NUM         = new Color(0.94f, 0.96f, 0.98f, 1f);
 
     /// 3-stop gradient: 0 = red, 0.5 = yellow, 1 = green. Used for "fraction remaining" style
     /// gauges (battery, latency-quality) where high = good.
@@ -286,177 +306,6 @@ public static class DroneUIFX
     }
 
     // ═════════════════════════════════════════════════════════════════════
-    // 2. Glowing pill badge  (armed / disarmed)
-    // ═════════════════════════════════════════════════════════════════════
-
-    public class GlowBadgeFX : IFxWidget
-    {
-        public Image bg;
-        public Image glow;
-        public TextMeshProUGUI label;
-        public Color onColor = COL_EMERALD;     // per spec: emerald when ARMED
-        public Color offColor = COL_AMBER;      // per spec: amber/red when DISARMED
-        public string onText = "ARMED";
-        public string offText = "DISARMED";
-        bool state;
-        float phase;
-
-        public void SetState(bool armed) => state = armed;
-
-        public void Tick(float dt)
-        {
-            phase += dt * (state ? 3.2f : 0.8f);
-            float pulse = 0.55f + 0.45f * Mathf.Sin(phase * Mathf.PI);
-            Color c = state ? onColor : offColor;
-            if (bg != null) bg.color = Color.Lerp(bg.color, c, dt * 8f);
-            if (glow != null) glow.color = new Color(c.r, c.g, c.b, pulse * (state ? 0.55f : 0.30f));
-            if (label != null)
-            {
-                string wanted = state ? onText : offText;
-                if (label.text != wanted) label.text = wanted;
-                label.color = Color.white;
-            }
-        }
-    }
-
-    public static GlowBadgeFX CreateGlowBadge(Transform parent, string name, float width, float height)
-    {
-        var root = new GameObject(name, typeof(RectTransform));
-        root.transform.SetParent(parent, false);
-        var le = root.AddComponent<LayoutElement>();
-        le.preferredWidth = width;
-        le.preferredHeight = height;
-
-        var glowGO = new GameObject("Glow", typeof(RectTransform), typeof(Image));
-        glowGO.transform.SetParent(root.transform, false);
-        var glowImg = glowGO.GetComponent<Image>();
-        glowImg.sprite = RoundedRectSprite;
-        glowImg.type = Image.Type.Sliced;
-        glowImg.color = new Color(0, 1, 0.5f, 0.3f);
-        glowImg.raycastTarget = false;
-        var glowRT = (RectTransform)glowGO.transform;
-        glowRT.sizeDelta = new Vector2(width * 1.18f, height * 1.5f);
-        Center(glowRT);
-
-        var bgGO = new GameObject("Bg", typeof(RectTransform), typeof(Image));
-        bgGO.transform.SetParent(root.transform, false);
-        var bgImg = bgGO.GetComponent<Image>();
-        bgImg.sprite = RoundedRectSprite;
-        bgImg.type = Image.Type.Sliced;
-        bgImg.color = COL_EMERALD;
-        bgImg.raycastTarget = false;
-        Stretch((RectTransform)bgGO.transform, 0f);
-
-        var lblGO = new GameObject("Label", typeof(RectTransform));
-        lblGO.transform.SetParent(root.transform, false);
-        var lbl = lblGO.AddComponent<TextMeshProUGUI>();
-        lbl.text = "DISARMED";
-        lbl.fontSize = 20;
-        lbl.fontStyle = FontStyles.Bold;
-        lbl.alignment = TextAlignmentOptions.Center;
-        lbl.color = Color.white;
-        Stretch(lbl.rectTransform, 0f);
-
-        return new GlowBadgeFX { bg = bgImg, glow = glowImg, label = lbl };
-    }
-
-    // ═════════════════════════════════════════════════════════════════════
-    // 3. Flight-mode glow cards
-    // ═════════════════════════════════════════════════════════════════════
-
-    public class FlightModeCardsFX : IFxWidget
-    {
-        class Card { public Image bg, glow; public TextMeshProUGUI icon, label; public float glowAlpha; }
-        readonly Dictionary<string, Card> cards = new Dictionary<string, Card>(StringComparer.OrdinalIgnoreCase);
-        string activeKey = "";
-
-        public void AddCard(string key, Image bg, Image glow, TextMeshProUGUI icon, TextMeshProUGUI label)
-            => cards[key] = new Card { bg = bg, glow = glow, icon = icon, label = label };
-
-        public void SetActiveMode(string flightMode)
-        {
-            if (string.IsNullOrEmpty(flightMode)) { activeKey = ""; return; }
-            activeKey = flightMode.Replace("_", "").Replace(" ", "").ToUpperInvariant();
-        }
-
-        public void Tick(float dt)
-        {
-            foreach (var kv in cards)
-            {
-                bool active = string.Equals(kv.Key.Replace("_", "").Replace(" ", ""), activeKey, StringComparison.OrdinalIgnoreCase);
-                var c = kv.Value;
-                float target = active ? 1f : 0f;
-                c.glowAlpha = Mathf.Lerp(c.glowAlpha, target, dt * 8f);
-                if (c.glow != null)
-                {
-                    var baseCol = c.glow.color;
-                    c.glow.color = new Color(baseCol.r, baseCol.g, baseCol.b, 0.55f * c.glowAlpha);
-                }
-                if (c.bg != null)
-                    c.bg.color = Color.Lerp(new Color(0.11f, 0.15f, 0.22f), new Color(0.16f, 0.24f, 0.34f), c.glowAlpha);
-                if (c.icon != null) c.icon.color = Color.Lerp(new Color(0.5f, 0.58f, 0.68f), Color.white, c.glowAlpha);
-                if (c.label != null) c.label.color = Color.Lerp(new Color(0.5f, 0.58f, 0.68f), Color.white, c.glowAlpha);
-            }
-        }
-    }
-
-    /// Creates one small glow-card for a flight mode inside `parent` (expects a
-    /// HorizontalLayoutGroup or GridLayoutGroup already on parent). Call once per mode.
-    public static void CreateFlightModeCard(FlightModeCardsFX set, Transform parent, string key,
-        string glyph, string label, Color accent)
-    {
-        var root = new GameObject(key + "Card", typeof(RectTransform));
-        root.transform.SetParent(parent, false);
-        var le = root.AddComponent<LayoutElement>();
-        le.preferredWidth = 76;
-        le.preferredHeight = 70;
-        le.flexibleWidth = 1;
-
-        var glowGO = new GameObject("Glow", typeof(RectTransform), typeof(Image));
-        glowGO.transform.SetParent(root.transform, false);
-        var glowImg = glowGO.GetComponent<Image>();
-        glowImg.sprite = RoundedRectSprite;
-        glowImg.type = Image.Type.Sliced;
-        glowImg.color = new Color(accent.r, accent.g, accent.b, 0f);
-        glowImg.raycastTarget = false;
-        var glowRT = (RectTransform)glowGO.transform;
-        Stretch(glowRT, -6f);
-
-        var bgGO = new GameObject("Bg", typeof(RectTransform), typeof(Image));
-        bgGO.transform.SetParent(root.transform, false);
-        var bgImg = bgGO.GetComponent<Image>();
-        bgImg.sprite = RoundedRectSprite;
-        bgImg.type = Image.Type.Sliced;
-        bgImg.color = new Color(0.11f, 0.15f, 0.22f);
-        bgImg.raycastTarget = false;
-        Stretch((RectTransform)bgGO.transform, 0f);
-
-        var vlg = root.AddComponent<VerticalLayoutGroup>();
-        vlg.childAlignment = TextAnchor.MiddleCenter;
-        vlg.spacing = 1;
-        vlg.childForceExpandWidth = true;
-        vlg.childForceExpandHeight = false;
-
-        var iconGO = new GameObject("Icon", typeof(RectTransform));
-        iconGO.transform.SetParent(root.transform, false);
-        var iconT = iconGO.AddComponent<TextMeshProUGUI>();
-        iconT.text = glyph;
-        iconT.fontSize = 30;
-        iconT.alignment = TextAlignmentOptions.Center;
-        iconT.color = new Color(0.5f, 0.58f, 0.68f);
-
-        var lblGO = new GameObject("Label", typeof(RectTransform));
-        lblGO.transform.SetParent(root.transform, false);
-        var lblT = lblGO.AddComponent<TextMeshProUGUI>();
-        lblT.text = label;
-        lblT.fontSize = 13;
-        lblT.fontStyle = FontStyles.Bold;
-        lblT.alignment = TextAlignmentOptions.Center;
-        lblT.color = new Color(0.5f, 0.58f, 0.68f);
-
-        set.AddCard(key, bgImg, glowImg, iconT, lblT);
-    }
-
     // ═════════════════════════════════════════════════════════════════════
     // 8. Vibration gradient bars
     // ═════════════════════════════════════════════════════════════════════
@@ -885,6 +734,250 @@ public static class DroneUIFX
                 yield return null;
             }
         }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════
+    // Aerospace helpers — flat, bordered, non-neon GCS style
+    // ═════════════════════════════════════════════════════════════════════
+
+    public class AeroStatusPill : IFxWidget
+    {
+        public Image bg, dot;
+        public TextMeshProUGUI label;
+        Color targetBg, targetDot;
+        string targetText;
+        public void SetState(Color bgCol, Color dotCol, string text)
+        {
+            targetBg = bgCol; targetDot = dotCol; targetText = text;
+        }
+        public void Tick(float dt)
+        {
+            if (bg != null) bg.color = Color.Lerp(bg.color, targetBg, dt * 10f);
+            if (dot != null) dot.color = Color.Lerp(dot.color, targetDot, dt * 10f);
+            if (label != null && label.text != targetText) label.text = targetText;
+        }
+    }
+
+    public static AeroStatusPill CreateAeroStatusPill(Transform parent, string name, float width, float height)
+    {
+        var root = new GameObject(name, typeof(RectTransform));
+        root.transform.SetParent(parent, false);
+        var le = root.AddComponent<LayoutElement>();
+        le.preferredWidth = width;
+        le.preferredHeight = height;
+        le.flexibleWidth = 0;
+
+        var bgGO = new GameObject("Bg", typeof(RectTransform), typeof(Image));
+        bgGO.transform.SetParent(root.transform, false);
+        var bgImg = bgGO.GetComponent<Image>();
+        bgImg.sprite = RoundedRectSprite;
+        bgImg.type = Image.Type.Sliced;
+        bgImg.color = AERO_CARD;
+        Stretch((RectTransform)bgGO.transform, 0f);
+        // border via outline image behind bg
+        var borderGO = new GameObject("Border", typeof(RectTransform), typeof(Image));
+        borderGO.transform.SetParent(root.transform, false);
+        borderGO.transform.SetAsFirstSibling();
+        var borderImg = borderGO.GetComponent<Image>();
+        borderImg.sprite = RoundedRectSprite;
+        borderImg.type = Image.Type.Sliced;
+        borderImg.color = AERO_BORDER;
+        borderImg.raycastTarget = false;
+        Stretch((RectTransform)borderGO.transform, 0f);
+        var innerGO = new GameObject("Inner", typeof(RectTransform), typeof(Image));
+        innerGO.transform.SetParent(root.transform, false);
+        innerGO.transform.SetSiblingIndex(1);
+        var innerImg = innerGO.GetComponent<Image>();
+        innerImg.sprite = RoundedRectSprite;
+        innerImg.type = Image.Type.Sliced;
+        innerImg.color = AERO_CARD;
+        innerImg.raycastTarget = false;
+        Stretch((RectTransform)innerGO.transform, 1f);
+
+        var hl = root.AddComponent<HorizontalLayoutGroup>();
+        hl.padding = new RectOffset(10, 10, 0, 0);
+        hl.spacing = 8;
+        hl.childAlignment = TextAnchor.MiddleLeft;
+        hl.childForceExpandWidth = false;
+
+        var dotGO = new GameObject("Dot", typeof(RectTransform), typeof(Image));
+        dotGO.transform.SetParent(root.transform, false);
+        var dotImg = dotGO.GetComponent<Image>();
+        dotImg.sprite = CircleSprite;
+        dotImg.color = AERO_GREEN;
+        var dotLE = dotGO.AddComponent<LayoutElement>();
+        dotLE.preferredWidth = 10; dotLE.preferredHeight = 10;
+        dotLE.flexibleWidth = 0;
+
+        var lblGO = new GameObject("Label", typeof(RectTransform));
+        lblGO.transform.SetParent(root.transform, false);
+        var lbl = lblGO.AddComponent<TextMeshProUGUI>();
+        lbl.text = "--";
+        lbl.fontSize = 12;
+        lbl.fontStyle = FontStyles.Bold;
+        lbl.color = AERO_TEXT;
+        lbl.alignment = TextAlignmentOptions.MidlineLeft;
+
+        return new AeroStatusPill { bg = innerImg, dot = dotImg, label = lbl };
+    }
+
+    public static void ApplyAeroButtonStyle(GameObject buttonGO, Color accent, bool isDestructive = false)
+    {
+        var img = buttonGO.GetComponent<Image>();
+        if (img != null)
+        {
+            img.sprite = RoundedRectSprite;
+            img.type = Image.Type.Sliced;
+            img.color = isDestructive ? new Color(0.78f,0.30f,0.30f,0.14f) : new Color(0.14f,0.19f,0.25f,1f);
+        }
+        // flat border
+        var borderGO = new GameObject("AeroBorder", typeof(RectTransform), typeof(Image));
+        borderGO.transform.SetParent(buttonGO.transform, false);
+        borderGO.transform.SetAsFirstSibling();
+        var borderImg = borderGO.GetComponent<Image>();
+        borderImg.sprite = RoundedRectSprite;
+        borderImg.type = Image.Type.Sliced;
+        borderImg.color = isDestructive ? new Color(0.78f,0.30f,0.30f,0.55f) : new Color(0.18f,0.22f,0.28f,1f);
+        borderImg.raycastTarget = false;
+        Stretch((RectTransform)borderGO.transform, 0f);
+        var innerGO = new GameObject("AeroInner", typeof(RectTransform), typeof(Image));
+        innerGO.transform.SetParent(buttonGO.transform, false);
+        innerGO.transform.SetSiblingIndex(1);
+        var innerImg = innerGO.GetComponent<Image>();
+        innerImg.sprite = RoundedRectSprite;
+        innerImg.type = Image.Type.Sliced;
+        innerImg.color = img.color;
+        innerImg.raycastTarget = false;
+        Stretch((RectTransform)innerGO.transform, 1f);
+
+        // subtle hover — no neon, just lighten/darken
+        var hover = buttonGO.GetComponent<GlassButtonHoverFX>();
+        if (hover != null) UnityEngine.Object.Destroy(hover);
+        var aeroHover = buttonGO.AddComponent<AeroButtonHoverFX>();
+        aeroHover.baseColor = img.color;
+        aeroHover.borderImage = borderImg;
+        aeroHover.fillImage = innerImg;
+        aeroHover.accent = accent;
+        aeroHover.isDestructive = isDestructive;
+    }
+
+    public class AeroButtonHoverFX : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler, IPointerUpHandler
+    {
+        public Color baseColor, accent;
+        public Image borderImage, fillImage;
+        public bool isDestructive;
+        public void OnPointerEnter(PointerEventData e)
+        {
+            if (fillImage) fillImage.color = Color.Lerp(baseColor, accent, 0.18f);
+            if (borderImage) borderImage.color = Color.Lerp(borderImage.color, accent, 0.45f);
+        }
+        public void OnPointerExit(PointerEventData e)
+        {
+            if (fillImage) fillImage.color = baseColor;
+            if (borderImage) borderImage.color = isDestructive ? new Color(0.78f,0.30f,0.30f,0.55f) : AERO_BORDER;
+        }
+        public void OnPointerDown(PointerEventData e)
+        {
+            if (fillImage) fillImage.color = Color.Lerp(baseColor, accent, 0.30f);
+        }
+        public void OnPointerUp(PointerEventData e)
+        {
+            if (fillImage) fillImage.color = Color.Lerp(baseColor, accent, 0.18f);
+        }
+    }
+
+    // Graph card factory — returns (TelemetryGraph, valueText) pair
+    public static TelemetryGraph CreateGraphCard(Transform parent, string title, string unit, Color accent, out TextMeshProUGUI valueTextOut, out TextMeshProUGUI titleTextOut)
+    {
+        var card = new GameObject(title + "GraphCard", typeof(RectTransform), typeof(Image));
+        card.transform.SetParent(parent, false);
+        var cardImg = card.GetComponent<Image>();
+        cardImg.sprite = RoundedRectSprite;
+        cardImg.type = Image.Type.Sliced;
+        cardImg.color = AERO_CARD;
+        var cardLE = card.AddComponent<LayoutElement>();
+        cardLE.flexibleWidth = 1;
+        cardLE.flexibleHeight = 1;
+        // border
+        var borderGO = new GameObject("Border", typeof(RectTransform), typeof(Image));
+        borderGO.transform.SetParent(card.transform, false);
+        borderGO.transform.SetAsFirstSibling();
+        var borderImg = borderGO.GetComponent<Image>();
+        borderImg.sprite = RoundedRectSprite;
+        borderImg.type = Image.Type.Sliced;
+        borderImg.color = AERO_BORDER;
+        borderImg.raycastTarget = false;
+        Stretch((RectTransform)borderGO.transform, 0f);
+        var innerGO = new GameObject("Inner", typeof(RectTransform), typeof(Image));
+        innerGO.transform.SetParent(card.transform, false);
+        innerGO.transform.SetSiblingIndex(1);
+        var innerImg = innerGO.GetComponent<Image>();
+        innerImg.sprite = RoundedRectSprite;
+        innerImg.type = Image.Type.Sliced;
+        innerImg.color = AERO_CARD;
+        innerImg.raycastTarget = false;
+        Stretch((RectTransform)innerGO.transform, 1f);
+
+        var vl = card.AddComponent<VerticalLayoutGroup>();
+        vl.padding = new RectOffset(12, 12, 10, 8);
+        vl.spacing = 6;
+        vl.childForceExpandWidth = true;
+        vl.childForceExpandHeight = false;
+        vl.childControlHeight = true;
+
+        // Header row: title left, value right
+        var headerGO = new GameObject("Header", typeof(RectTransform));
+        headerGO.transform.SetParent(card.transform, false);
+        headerGO.AddComponent<LayoutElement>().preferredHeight = 22;
+        var hl = headerGO.AddComponent<HorizontalLayoutGroup>();
+        hl.childForceExpandWidth = true;
+        hl.childAlignment = TextAnchor.MiddleLeft;
+
+        var titleGO = new GameObject("Title", typeof(RectTransform));
+        titleGO.transform.SetParent(headerGO.transform, false);
+        var titleTMP = titleGO.AddComponent<TextMeshProUGUI>();
+        titleTMP.text = title;
+        titleTMP.fontSize = 11;
+        titleTMP.fontStyle = FontStyles.Bold;
+        titleTMP.color = AERO_TEXT_DIM;
+        titleTMP.alignment = TextAlignmentOptions.MidlineLeft;
+        // letter spacing for aerospace label
+        titleTMP.characterSpacing = 8f;
+
+        var valueGO = new GameObject("Value", typeof(RectTransform));
+        valueGO.transform.SetParent(headerGO.transform, false);
+        var valueTMP = valueGO.AddComponent<TextMeshProUGUI>();
+        valueTMP.text = "-- " + unit;
+        valueTMP.fontSize = 15;
+        valueTMP.fontStyle = FontStyles.Bold;
+        valueTMP.color = AERO_NUM;
+        valueTMP.alignment = TextAlignmentOptions.MidlineRight;
+        valueTextOut = valueTMP;
+        titleTextOut = titleTMP;
+
+        // Graph area
+        var graphGO = new GameObject("Graph", typeof(RectTransform), typeof(Image));
+        graphGO.transform.SetParent(card.transform, false);
+        graphGO.AddComponent<LayoutElement>().flexibleHeight = 1;
+        var graphBg = graphGO.GetComponent<Image>();
+        graphBg.sprite = RoundedRectSprite;
+        graphBg.type = Image.Type.Sliced;
+        graphBg.color = new Color(0.07f, 0.10f, 0.14f, 1f);
+        graphBg.raycastTarget = false;
+
+        var innerGraphGO = new GameObject("GraphPlot", typeof(RectTransform));
+        innerGraphGO.transform.SetParent(graphGO.transform, false);
+        var rt = innerGraphGO.AddComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+        rt.offsetMin = new Vector2(8, 8); rt.offsetMax = new Vector2(-8, -8);
+        var graph = innerGraphGO.AddComponent<TelemetryGraph>();
+        graph.lineColor = accent;
+        graph.fillColor = new Color(accent.r, accent.g, accent.b, 0.09f);
+        graph.gridColor = new Color(1f, 1f, 1f, 0.06f);
+        graph.thickness = 1.8f;
+        graph.raycastTarget = false;
+
+        return graph;
     }
 
     // ═════════════════════════════════════════════════════════════════════

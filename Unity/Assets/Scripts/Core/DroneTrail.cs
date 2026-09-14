@@ -29,10 +29,10 @@ public class DroneTrail : MonoBehaviour
         cache = new Vector3[ring.Length];
         line.positionCount = 0;
         line.useWorldSpace = true;
-        // aerospace styling — muted teal, thin
+        // aerospace styling — muted teal, thin, less prominent
         if (line.material == null) line.material = new Material(Shader.Find("Sprites/Default"));
-        line.startColor = line.endColor = new Color(0.22f, 0.68f, 0.64f, 0.55f);
-        line.startWidth = line.endWidth = 0.08f;
+        line.startColor = line.endColor = new Color(0.22f, 0.68f, 0.64f, 0.40f);
+        line.startWidth = line.endWidth = 0.05f;
         line.numCornerVertices = 2;
         line.numCapVertices = 2;
     }

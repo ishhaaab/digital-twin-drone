@@ -1239,6 +1239,8 @@ public static class DroneUIFX
     public static AeroButtonHoverFX ApplyAeroButtonStyle(GameObject buttonGO, Color accent, bool isDestructive = false)
     {
         var img = buttonGO.GetComponent<Image>();
+        var button = buttonGO.GetComponent<Button>();
+        if (button != null) button.transition = Selectable.Transition.None;
         if (img != null)
         {
             img.sprite = RoundedRectSprite;
@@ -1433,7 +1435,7 @@ public static class DroneUIFX
         graphBg.color = new Color(AERO_BG.r, AERO_BG.g, AERO_BG.b, 0.55f);
         graphBg.raycastTarget = false;
 
-        var innerGraphGO = new GameObject("GraphPlot", typeof(RectTransform));
+        var innerGraphGO = new GameObject("GraphPlot", typeof(RectTransform), typeof(CanvasRenderer));
         innerGraphGO.transform.SetParent(graphGO.transform, false);
         var rt = innerGraphGO.GetComponent<RectTransform>();
         rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;

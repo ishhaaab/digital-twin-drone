@@ -736,7 +736,7 @@ public class DroneDashboardUI : MonoBehaviour
         tileRoot.transform.SetParent(plot.transform, false);
         Stretch((RectTransform)tileRoot.transform);
 
-        var mapOverlay = new GameObject("FlightOverlay", typeof(RectTransform));
+        var mapOverlay = new GameObject("FlightOverlay", typeof(RectTransform), typeof(CanvasRenderer));
         mapOverlay.transform.SetParent(plot.transform, false);
         Stretch((RectTransform)mapOverlay.transform);
         mapView = mapOverlay.AddComponent<DroneMapView>();
@@ -1061,7 +1061,7 @@ public class DroneDashboardUI : MonoBehaviour
         text.fontSize = 9;
         text.fontStyle = FontStyles.Bold;
         text.characterSpacing = 6;
-        text.color = selected ? ACCENT : interactable ? TXT_SEC : TXT_DIM;
+        text.color = interactable ? TXT_SEC : TXT_DIM;
         text.alignment = TextAlignmentOptions.Center;
         text.raycastTarget = false;
         Stretch(text.rectTransform);

@@ -109,12 +109,15 @@ public static class DroneUIFX
     static UIFXAnimator _animator;
     public static UIFXAnimator GetAnimator(Transform canvasRoot)
     {
+        // Unity's == operator on a UnityEngine.Object returns true when the
+        // object has been destroyed, so a cached animator from a previous
+        // scene reloads cleanly instead of leaving widgets pointing at garbage.
+        if (_animator != null)
+            return _animator;
+
+        _animator = canvasRoot.GetComponent<UIFXAnimator>();
         if (_animator == null)
-        {
-            _animator = canvasRoot.GetComponent<UIFXAnimator>();
-            if (_animator == null)
-                _animator = canvasRoot.gameObject.AddComponent<UIFXAnimator>();
-        }
+            _animator = canvasRoot.gameObject.AddComponent<UIFXAnimator>();
         return _animator;
     }
 

@@ -93,7 +93,8 @@ public class DroneUIUpdater : MonoBehaviour
 
     [Header("Vibration Thresholds (m/s²)")]
     public float vibHighThreshold     = 30f;
-    public float vibCriticalThreshold = 60f;   // must match DroneDataReceiver
+    [Tooltip("Display 'CRITICAL' threshold. Surpassed at runtime by DroneDataReceiver.vibrationThreshold (the auto-land trigger) so the two can never drift.")]
+    public float vibCriticalThreshold = 60f;
     public float vibGaugeMax          = 80f;   // full-scale value for the gradient bars
 
     [Header("Latency Gauge")]
@@ -109,13 +110,9 @@ public class DroneUIUpdater : MonoBehaviour
     public float satellitesForFullBars = 12f;
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Colours (unchanged from the original script)
+    // Colours — shared palette lives in DroneUIFX (single source of truth).
+    // BG_ALARM is specific to this banner, so it stays here.
     // ─────────────────────────────────────────────────────────────────────────
-    static readonly Color COL_GREEN    = new Color(0.2f,  0.9f,  0.5f);
-    static readonly Color COL_YELLOW   = new Color(1.0f,  0.85f, 0.2f);
-    static readonly Color COL_ORANGE   = new Color(1.0f,  0.55f, 0.1f);
-    static readonly Color COL_RED      = new Color(1.0f,  0.25f, 0.25f);
-
     static readonly Color BG_ALARM    = new Color(0.8f,  0.1f,  0.1f,  0.85f);
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -131,6 +128,10 @@ public class DroneUIUpdater : MonoBehaviour
         SetText(uptimeText, FormatTime(uptime));
 
         if (dataReceiver == null) return;
+
+        // Vibration auto-land lives in DroneDataReceiver — keep the display
+        // threshold in lockstep with it so the two can't drift apart.
+        vibCriticalThreshold = dataReceiver.vibrationThreshold;
 
         // ── Connection status ─────────────────────────────────────────────
         SetText(connectionText, dataReceiver.isConnected ? "Connected" : "Waiting...");
@@ -248,11 +249,11 @@ public class DroneUIUpdater : MonoBehaviour
         if (vibStatusText != null)
         {
             if (maxVib >= vibCriticalThreshold)
-            { vibStatusText.text = "CRITICAL"; vibStatusText.color = COL_RED; }
+            { vibStatusText.text = "CRITICAL"; vibStatusText.color = DroneUIFX.COL_RED; }
             else if (maxVib >= vibHighThreshold)
-            { vibStatusText.text = "HIGH";     vibStatusText.color = COL_ORANGE; }
+            { vibStatusText.text = "HIGH";     vibStatusText.color = DroneUIFX.COL_ORANGE; }
             else
-            { vibStatusText.text = "OK";       vibStatusText.color = COL_GREEN; }
+            { vibStatusText.text = "OK";       vibStatusText.color = DroneUIFX.COL_GREEN; }
         }
 
         // ══════════════════════════════════════════════════════════════════
@@ -308,9 +309,9 @@ public class DroneUIUpdater : MonoBehaviour
         if (t == null) return;
         t.text = $"{val:F2}";
         float a = Mathf.Abs(val);
-        if      (a >= vibCriticalThreshold) t.color = COL_RED;
-        else if (a >= vibHighThreshold)     t.color = COL_ORANGE;
-        else                                t.color = COL_GREEN;
+        if      (a >= vibCriticalThreshold) t.color = DroneUIFX.COL_RED;
+        else if (a >= vibHighThreshold)     t.color = DroneUIFX.COL_ORANGE;
+        else                                t.color = DroneUIFX.COL_GREEN;
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -234,9 +234,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DroneController
   dataReceiver: {fileID: 974473246}
-  xScale: 10
-  yScale: 10
-  zScale: 10
+  metersToUnity: 10
   invertX: 0
   invertY: 0
   invertZ: 0
@@ -248,7 +246,6 @@ MonoBehaviour:
   invertRoll: 1
   positionSmoothTime: 0.3
   rotationSmooth: 6
-  maxDistance: 50
   deadzone: 0.001
 --- !u!114 &654473317
 MonoBehaviour:
@@ -403,16 +400,16 @@ Light:
   m_Type: 1
   m_Color: {r: 1, g: 0.95686275, b: 0.8392157, a: 1}
   m_Intensity: 1
-  m_Range: 10
+  m_Range: 500
   m_SpotAngle: 30
   m_InnerSpotAngle: 21.80208
-  m_CookieSize2D: {x: 10, y: 10}
+  m_CookieSize2D: {x: 40, y: 40}
   m_Shadows:
     m_Type: 2
     m_Resolution: -1
     m_CustomResolution: -1
     m_Strength: 1
-    m_Bias: 0.05
+    m_Bias: 0.08
     m_NormalBias: 0.4
     m_NearPlane: 0.2
     m_CullingMatrixOverride:
@@ -434,14 +431,14 @@ Light:
       e33: 1
     m_UseCullingMatrixOverride: 0
   m_Cookie: {fileID: 0}
-  m_DrawHalo: 0
+  m_DrawHalo: 1
   m_Flare: {fileID: 0}
   m_RenderMode: 0
   m_CullingMask:
     serializedVersion: 2
     m_Bits: 4294967295
   m_RenderingLayerMask: 1
-  m_Lightmapping: 1
+  m_Lightmapping: 4
   m_LightShadowCasterMode: 0
   m_AreaSize: {x: 1, y: 1}
   m_BounceIntensity: 1
@@ -452,7 +449,7 @@ Light:
   m_UseViewFrustumForShadowCasterCull: 1
   m_ForceVisible: 0
   m_ShadowRadius: 0
-  m_ShadowAngle: 0
+  m_ShadowAngle: 31.3
   m_LightUnit: 1
   m_LuxAtDistance: 1
   m_EnableSpotReflector: 1
@@ -465,7 +462,7 @@ Transform:
   m_GameObject: {fileID: 705507993}
   serializedVersion: 2
   m_LocalRotation: {x: 0.40821788, y: -0.23456968, z: 0.10938163, w: 0.8754261}
-  m_LocalPosition: {x: 0, y: 3, z: 0}
+  m_LocalPosition: {x: 5, y: 5, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -725,7 +722,7 @@ Transform:
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
-  m_Children:
+  m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &974473245
@@ -744,9 +741,13 @@ MonoBehaviour:
   connectionText: {fileID: 0}
   latencyText: {fileID: 0}
   uptimeText: {fileID: 0}
+  packetCountText: {fileID: 0}
   frameCountText: {fileID: 0}
   flightModeText: {fileID: 0}
   armedText: {fileID: 0}
+  satTopText: {fileID: 0}
+  gpsSatText: {fileID: 0}
+  topHeadingText: {fileID: 0}
   pitchText: {fileID: 0}
   rollText: {fileID: 0}
   yawText: {fileID: 0}
@@ -759,11 +760,8 @@ MonoBehaviour:
   yText: {fileID: 0}
   zText: {fileID: 0}
   speedText: {fileID: 0}
+  verticalSpeedText: {fileID: 0}
   batteryPercentText: {fileID: 0}
-  motor1Text: {fileID: 0}
-  motor2Text: {fileID: 0}
-  motor3Text: {fileID: 0}
-  motor4Text: {fileID: 0}
   vibXText: {fileID: 0}
   vibYText: {fileID: 0}
   vibZText: {fileID: 0}
@@ -772,13 +770,46 @@ MonoBehaviour:
   latMinText: {fileID: 0}
   latMaxText: {fileID: 0}
   latVarText: {fileID: 0}
+  packetRateText: {fileID: 0}
+  packetLossText: {fileID: 0}
   alarmBannerText: {fileID: 0}
   alarmBannerBg: {fileID: 0}
   batteryCardBg: {fileID: 0}
+  hudHeadingText: {fileID: 0}
+  centerHeadingText: {fileID: 0}
+  hudAltText: {fileID: 0}
+  hudSpeedText: {fileID: 0}
+  hudModeText: {fileID: 0}
+  hudArmedText: {fileID: 0}
+  altitudeGraph: {fileID: 0}
+  altitudeGraphValue: {fileID: 0}
+  speedGraph: {fileID: 0}
+  speedGraphValue: {fileID: 0}
+  latencyGraph: {fileID: 0}
+  latencyGraphValue: {fileID: 0}
+  batteryGraph: {fileID: 0}
+  batteryGraphValue: {fileID: 0}
+  telemetryStatusText: {fileID: 0}
+  gpsStatusText: {fileID: 0}
+  imuStatusText: {fileID: 0}
+  powerStatusText: {fileID: 0}
+  barometerStatusText: {fileID: 0}
+  stabilizeButtonStyle: {fileID: 0}
+  altHoldButtonStyle: {fileID: 0}
+  posHoldButtonStyle: {fileID: 0}
   batteryLowPercent: 30
   batteryCriticalPercent: 15
   vibHighThreshold: 30
   vibCriticalThreshold: 60
+  vibGaugeMax: 80
+  latencyGaugeMaxMs: 300
+  latencyHighMs: 180
+  latencyCriticalMs: 300
+  gpsGoodLatencyMs: 80
+  gpsPoorLatencyMs: 400
+  satellitesForFullBars: 12
+  gpsDegradedSats: 6
+  delayedThreshold: 5
 --- !u!114 &974473246
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -793,6 +824,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::DroneDataReceiver
   listenPort: 5055
   commandPort: 5056
+  commandTargetIP: 127.0.0.1
   latestData:
     timestamp: 0
     x: 0
@@ -814,6 +846,7 @@ MonoBehaviour:
     battery_remaining: 0
     voltage: 0
     current: 0
+    satellites: -1
     motor1: 0
     motor2: 0
     motor3: 0
@@ -831,6 +864,7 @@ MonoBehaviour:
     max: -3.4028235e+38
   newDataAvailable: 0
   isConnected: 0
+  connectionTimeout: 2
   vibrationThreshold: 60
   vibrationCooldown: 10
 --- !u!114 &974473247

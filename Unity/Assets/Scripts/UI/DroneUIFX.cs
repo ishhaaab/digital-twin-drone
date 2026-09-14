@@ -54,7 +54,7 @@ public static class DroneUIFX
         _circleSprite ??= LoadSprite("UI/Skin/Knob.psd") ?? GenerateCircleSprite();
 
     public static Sprite RoundedRectSprite =>
-        _roundedRectSprite ??= LoadSprite("UI/Skin/UISprite.psd") ?? GenerateRoundedRectSprite();
+        _roundedRectSprite ??= GenerateRoundedRectSprite();
 
     static Sprite LoadSprite(string path)
     {
@@ -62,14 +62,13 @@ public static class DroneUIFX
         catch { return null; }
     }
 
-    /// 64x64 rounded-rect texture with an 8px slice border so Image.Type.Sliced
-    /// keeps rounded corners when stretched.
+    /// Sharply radiused sliced rectangle used for all GCS surfaces.
     static Sprite GenerateRoundedRectSprite()
     {
         const int S = 64;
         var tex = new Texture2D(S, S, TextureFormat.RGBA32, false);
         tex.name = "ProcRoundedRect";
-        float r = 14f; // corner radius
+        float r = 4f;
         for (int y = 0; y < S; y++)
         {
             for (int x = 0; x < S; x++)
@@ -93,8 +92,10 @@ public static class DroneUIFX
             }
         }
         tex.Apply();
+        tex.filterMode = FilterMode.Bilinear;
+        tex.wrapMode = TextureWrapMode.Clamp;
         var spr = Sprite.Create(tex, new Rect(0, 0, S, S), new Vector2(0.5f, 0.5f), 100f,
-            0u, SpriteMeshType.FullRect, new Vector4(8, 8, 8, 8));
+            0u, SpriteMeshType.FullRect, new Vector4(4, 4, 4, 4));
         spr.name = "ProcRoundedRect";
         return spr;
     }
@@ -123,6 +124,157 @@ public static class DroneUIFX
         return spr;
     }
 
+    public enum IconType
+    {
+        Drone, Connection, Mode, Lock, Signal, Gps, Heading, Clock,
+        Camera, Map, Settings, Attitude, Position, Speed, Controls,
+        Battery, Telemetry, System, Target, Layers, Lighting, Fullscreen,
+        Altitude
+    }
+
+    static readonly Dictionary<IconType, Sprite> iconSprites = new Dictionary<IconType, Sprite>();
+
+    public static Image CreateIcon(Transform parent, IconType type, float size, Color color)
+    {
+        var go = new GameObject(type + "Icon", typeof(RectTransform), typeof(Image));
+        go.transform.SetParent(parent, false);
+        var image = go.GetComponent<Image>();
+        image.sprite = GetIconSprite(type);
+        image.color = color;
+        image.preserveAspect = true;
+        image.raycastTarget = false;
+        var layout = go.AddComponent<LayoutElement>();
+        layout.preferredWidth = size;
+        layout.preferredHeight = size;
+        layout.flexibleWidth = 0f;
+        layout.flexibleHeight = 0f;
+        return image;
+    }
+
+    static Sprite GetIconSprite(IconType type)
+    {
+        if (iconSprites.TryGetValue(type, out Sprite sprite)) return sprite;
+
+        const int size = 64;
+        var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+        {
+            name = "GCS Icon " + type,
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp
+        };
+        var clear = new Color32[size * size];
+        texture.SetPixels32(clear);
+        Color ink = Color.white;
+
+        void Line(float x0, float y0, float x1, float y1, float width = 3f)
+        {
+            int minX = Mathf.Max(0, Mathf.FloorToInt(Mathf.Min(x0, x1) - width));
+            int maxX = Mathf.Min(size - 1, Mathf.CeilToInt(Mathf.Max(x0, x1) + width));
+            int minY = Mathf.Max(0, Mathf.FloorToInt(Mathf.Min(y0, y1) - width));
+            int maxY = Mathf.Min(size - 1, Mathf.CeilToInt(Mathf.Max(y0, y1) + width));
+            Vector2 a = new Vector2(x0, y0);
+            Vector2 b = new Vector2(x1, y1);
+            Vector2 ab = b - a;
+            float lengthSq = Mathf.Max(ab.sqrMagnitude, 0.001f);
+            for (int y = minY; y <= maxY; y++)
+            for (int x = minX; x <= maxX; x++)
+            {
+                Vector2 p = new Vector2(x + 0.5f, y + 0.5f);
+                float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / lengthSq);
+                float distance = Vector2.Distance(p, a + ab * t);
+                float alpha = Mathf.Clamp01(width * 0.5f + 0.7f - distance);
+                if (alpha > 0f) texture.SetPixel(x, y, new Color(ink.r, ink.g, ink.b, alpha));
+            }
+        }
+
+        void Circle(float cx, float cy, float radius, float width = 3f)
+        {
+            int minX = Mathf.Max(0, Mathf.FloorToInt(cx - radius - width));
+            int maxX = Mathf.Min(size - 1, Mathf.CeilToInt(cx + radius + width));
+            int minY = Mathf.Max(0, Mathf.FloorToInt(cy - radius - width));
+            int maxY = Mathf.Min(size - 1, Mathf.CeilToInt(cy + radius + width));
+            for (int y = minY; y <= maxY; y++)
+            for (int x = minX; x <= maxX; x++)
+            {
+                float distance = Mathf.Abs(Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), new Vector2(cx, cy)) - radius);
+                float alpha = Mathf.Clamp01(width * 0.5f + 0.7f - distance);
+                if (alpha > 0f) texture.SetPixel(x, y, new Color(ink.r, ink.g, ink.b, alpha));
+            }
+        }
+
+        void Rect(float x0, float y0, float x1, float y1, float width = 3f)
+        {
+            Line(x0, y0, x1, y0, width); Line(x1, y0, x1, y1, width);
+            Line(x1, y1, x0, y1, width); Line(x0, y1, x0, y0, width);
+        }
+
+        switch (type)
+        {
+            case IconType.Drone:
+                Circle(32, 32, 6); Line(27, 27, 17, 17); Line(37, 27, 47, 17);
+                Line(27, 37, 17, 47); Line(37, 37, 47, 47);
+                Circle(14, 14, 6); Circle(50, 14, 6); Circle(14, 50, 6); Circle(50, 50, 6); break;
+            case IconType.Connection:
+            case IconType.Signal:
+                Line(15, 21, 15, 27); Line(25, 21, 25, 35); Line(35, 21, 35, 43); Line(45, 21, 45, 51); break;
+            case IconType.Mode:
+                Line(14, 20, 50, 20); Line(14, 32, 50, 32); Line(14, 44, 50, 44);
+                Circle(24, 20, 4); Circle(40, 32, 4); Circle(29, 44, 4); break;
+            case IconType.Lock:
+                Rect(17, 15, 47, 38); Circle(32, 38, 12); Line(20, 38, 20, 44); Line(44, 38, 44, 44); break;
+            case IconType.Gps:
+            case IconType.Position:
+                Circle(32, 36, 13); Circle(32, 36, 4); Line(21, 27, 32, 12); Line(43, 27, 32, 12); break;
+            case IconType.Heading:
+                Circle(32, 32, 20); Line(32, 48, 25, 23); Line(32, 48, 39, 23); break;
+            case IconType.Clock:
+                Circle(32, 32, 20); Line(32, 32, 32, 45); Line(32, 32, 43, 26); break;
+            case IconType.Camera:
+                Rect(12, 18, 52, 44); Rect(22, 44, 34, 49); Circle(32, 31, 9); break;
+            case IconType.Map:
+                Line(12, 15, 12, 48); Line(12, 48, 27, 42); Line(27, 42, 40, 48); Line(40, 48, 52, 42);
+                Line(52, 42, 52, 15); Line(52, 15, 40, 21); Line(40, 21, 27, 15); Line(27, 15, 12, 21);
+                Line(27, 15, 27, 42); Line(40, 21, 40, 48); break;
+            case IconType.Settings:
+                Circle(32, 32, 9); Circle(32, 32, 20); Line(32, 7, 32, 14); Line(32, 50, 32, 57);
+                Line(7, 32, 14, 32); Line(50, 32, 57, 32); Line(14, 14, 19, 19); Line(45, 45, 50, 50);
+                Line(14, 50, 19, 45); Line(45, 19, 50, 14); break;
+            case IconType.Attitude:
+                Circle(32, 32, 21); Line(12, 32, 52, 32); Line(21, 39, 43, 39); Line(26, 25, 38, 25); break;
+            case IconType.Speed:
+                Circle(32, 29, 20); Line(32, 29, 44, 42); Line(17, 13, 47, 13); break;
+            case IconType.Controls:
+                Line(12, 20, 52, 20); Line(12, 32, 52, 32); Line(12, 44, 52, 44);
+                Circle(22, 20, 5); Circle(42, 32, 5); Circle(30, 44, 5); break;
+            case IconType.Battery:
+                Rect(10, 19, 50, 45); Rect(50, 27, 55, 37); Line(17, 25, 17, 39); Line(24, 25, 24, 39); Line(31, 25, 31, 39); break;
+            case IconType.Telemetry:
+                Line(8, 30, 17, 30); Line(17, 30, 23, 45); Line(23, 45, 31, 16); Line(31, 16, 39, 39); Line(39, 39, 46, 30); Line(46, 30, 56, 30); break;
+            case IconType.System:
+                Rect(18, 18, 46, 46); Rect(25, 25, 39, 39); for (int i = 20; i <= 44; i += 8) { Line(i, 11, i, 18); Line(i, 46, i, 53); Line(11, i, 18, i); Line(46, i, 53, i); } break;
+            case IconType.Target:
+                Circle(32, 32, 18); Circle(32, 32, 5); Line(32, 7, 32, 17); Line(32, 47, 32, 57); Line(7, 32, 17, 32); Line(47, 32, 57, 32); break;
+            case IconType.Layers:
+                Line(10, 38, 32, 51); Line(32, 51, 54, 38); Line(54, 38, 32, 25); Line(32, 25, 10, 38);
+                Line(10, 28, 32, 15); Line(32, 15, 54, 28); break;
+            case IconType.Lighting:
+                Circle(32, 32, 10); Line(32, 7, 32, 16); Line(32, 48, 32, 57); Line(7, 32, 16, 32); Line(48, 32, 57, 32);
+                Line(14, 14, 20, 20); Line(44, 44, 50, 50); Line(14, 50, 20, 44); Line(44, 20, 50, 14); break;
+            case IconType.Fullscreen:
+                Line(12, 26, 12, 12); Line(12, 12, 26, 12); Line(38, 12, 52, 12); Line(52, 12, 52, 26);
+                Line(12, 38, 12, 52); Line(12, 52, 26, 52); Line(38, 52, 52, 52); Line(52, 52, 52, 38); break;
+            case IconType.Altitude:
+                Line(32, 10, 32, 54); Line(32, 54, 23, 43); Line(32, 54, 41, 43); Line(16, 15, 48, 15); break;
+        }
+
+        texture.Apply();
+        sprite = Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f,
+            0u, SpriteMeshType.FullRect, Vector4.zero);
+        sprite.name = "GCS Icon " + type;
+        iconSprites[type] = sprite;
+        return sprite;
+    }
+
     // ── Shared colour ramps ──────────────────────────────────────────────
     public static readonly Color COL_GREEN  = new Color(0.20f, 0.90f, 0.50f);
     public static readonly Color COL_YELLOW = new Color(1.00f, 0.85f, 0.20f);
@@ -136,23 +288,23 @@ public static class DroneUIFX
     // Backgrounds: very dark graphite/navy, not pure black, to reduce eye strain
     // Cards: slightly lighter slate with subtle border. Accents: muted teal/amber/rose
     // All text: high-contrast white (0.92) vs secondary slate (0.60)
-    public static readonly Color AERO_BG          = new Color(0.035f, 0.047f, 0.055f, 1f);
-    public static readonly Color AERO_PANEL       = new Color(0.040f, 0.070f, 0.090f, 1f);
-    public static readonly Color AERO_CARD        = new Color(0.045f, 0.085f, 0.110f, 1f);
-    public static readonly Color AERO_CARD2       = new Color(0.060f, 0.105f, 0.135f, 1f);
-    public static readonly Color AERO_BORDER      = new Color(0.105f, 0.190f, 0.235f, 1f);
-    public static readonly Color AERO_DIVIDER     = new Color(0.105f, 0.190f, 0.235f, 0.45f);
-    public static readonly Color AERO_TEXT        = new Color(0.92f, 0.93f, 0.95f, 1f);
-    public static readonly Color AERO_TEXT_SEC    = new Color(0.62f, 0.68f, 0.74f, 1f);
-    public static readonly Color AERO_TEXT_DIM    = new Color(0.48f, 0.53f, 0.60f, 1f);
-    public static readonly Color AERO_ACCENT      = new Color(0.20f, 0.78f, 0.88f, 1f);
-    public static readonly Color AERO_ACCENT_DIM  = new Color(0.20f, 0.78f, 0.88f, 0.15f);
-    public static readonly Color AERO_AMBER       = new Color(0.86f, 0.62f, 0.22f, 1f);  // #DB9E38
-    public static readonly Color AERO_RED         = new Color(0.78f, 0.30f, 0.30f, 1f);  // #C74C4C
-    public static readonly Color AERO_RED_BG      = new Color(0.78f, 0.30f, 0.30f, 0.14f);
-    public static readonly Color AERO_GREEN       = new Color(0.26f, 0.74f, 0.52f, 1f);
+    public static readonly Color AERO_BG          = new Color(0.027f, 0.063f, 0.094f, 1f); // #071018
+    public static readonly Color AERO_PANEL       = new Color(0.039f, 0.090f, 0.125f, 1f); // #0A1720
+    public static readonly Color AERO_CARD        = new Color(0.047f, 0.106f, 0.145f, 1f); // #0C1B25
+    public static readonly Color AERO_CARD2       = new Color(0.055f, 0.125f, 0.169f, 1f);
+    public static readonly Color AERO_BORDER      = new Color(0.090f, 0.208f, 0.275f, 1f); // #173546
+    public static readonly Color AERO_DIVIDER     = new Color(0.106f, 0.235f, 0.298f, 0.68f);
+    public static readonly Color AERO_TEXT        = new Color(0.902f, 0.933f, 0.957f, 1f); // #E6EEF4
+    public static readonly Color AERO_TEXT_SEC    = new Color(0.565f, 0.643f, 0.690f, 1f);
+    public static readonly Color AERO_TEXT_DIM    = new Color(0.365f, 0.467f, 0.525f, 1f);
+    public static readonly Color AERO_ACCENT      = new Color(0.125f, 0.847f, 0.941f, 1f); // #20D8F0
+    public static readonly Color AERO_ACCENT_DIM  = new Color(0.125f, 0.847f, 0.941f, 0.12f);
+    public static readonly Color AERO_AMBER       = new Color(0.953f, 0.714f, 0.184f, 1f); // #F3B62F
+    public static readonly Color AERO_RED         = new Color(0.941f, 0.310f, 0.310f, 1f); // #F04F4F
+    public static readonly Color AERO_RED_BG      = new Color(0.941f, 0.310f, 0.310f, 0.12f);
+    public static readonly Color AERO_GREEN       = new Color(0.208f, 0.875f, 0.541f, 1f); // #35DF8A
     // Monospace number colour: slightly cooler white
-    public static readonly Color AERO_NUM         = new Color(0.94f, 0.96f, 0.98f, 1f);
+    public static readonly Color AERO_NUM         = new Color(0.902f, 0.933f, 0.957f, 1f);
 
     /// 3-stop gradient: 0 = red, 0.5 = yellow, 1 = green. Used for "fraction remaining" style
     /// gauges (battery, latency-quality) where high = good.
@@ -409,7 +561,7 @@ public static class DroneUIFX
     {
         var row = new GameObject(label + "Bar", typeof(RectTransform));
         row.transform.SetParent(parent, false);
-        row.AddComponent<LayoutElement>().preferredHeight = 40;
+        row.AddComponent<LayoutElement>().preferredHeight = 34;
 
         var vlg = row.AddComponent<VerticalLayoutGroup>();
         vlg.spacing = 3;
@@ -419,7 +571,7 @@ public static class DroneUIFX
 
         var headerGO = new GameObject("Header", typeof(RectTransform));
         headerGO.transform.SetParent(row.transform, false);
-        headerGO.AddComponent<LayoutElement>().preferredHeight = 20;
+        headerGO.AddComponent<LayoutElement>().preferredHeight = 18;
         var hl = headerGO.AddComponent<HorizontalLayoutGroup>();
         hl.childForceExpandWidth = true;
 
@@ -427,7 +579,7 @@ public static class DroneUIFX
         lblGO.transform.SetParent(headerGO.transform, false);
         var lbl = lblGO.AddComponent<TextMeshProUGUI>();
         lbl.text = label;
-        lbl.fontSize = 10;
+        lbl.fontSize = 9;
         lbl.fontStyle = FontStyles.Bold;
         lbl.color = new Color(0.6f, 0.72f, 0.85f);
         lbl.alignment = TextAlignmentOptions.MidlineLeft;
@@ -436,14 +588,14 @@ public static class DroneUIFX
         valGO.transform.SetParent(headerGO.transform, false);
         var val = valGO.AddComponent<TextMeshProUGUI>();
         val.text = "0.00";
-        val.fontSize = 12;
+        val.fontSize = 11;
         val.fontStyle = FontStyles.Bold;
         val.color = Color.white;
         val.alignment = TextAlignmentOptions.MidlineRight;
 
         var trackGO = new GameObject("Track", typeof(RectTransform), typeof(Image));
         trackGO.transform.SetParent(row.transform, false);
-        trackGO.AddComponent<LayoutElement>().preferredHeight = 12;
+        trackGO.AddComponent<LayoutElement>().preferredHeight = 4;
         var trackImg = trackGO.GetComponent<Image>();
         trackImg.sprite = RoundedRectSprite;
         trackImg.type = Image.Type.Sliced;
@@ -543,8 +695,7 @@ public static class DroneUIFX
         }
     }
 
-    /// Builds a glassmorphism heading tape: a masked strip with degree ticks that scrolls as
-    /// the drone yaws, with a fixed centre pointer marking the current heading.
+    /// Builds a compact aircraft-style heading tape with a fixed centre pointer.
     public static CompassRibbonFX CreateCompassRibbon(Transform parent, float width, float height)
     {
         const float pxPerDeg = 7f;
@@ -555,13 +706,13 @@ public static class DroneUIFX
         le.preferredWidth = width;
         le.preferredHeight = height;
 
-        // Glass background
+        // Low-opacity backing keeps the tape legible without covering the scene.
         var glassGO = new GameObject("Glass", typeof(RectTransform), typeof(Image));
         glassGO.transform.SetParent(root.transform, false);
         var glassImg = glassGO.GetComponent<Image>();
         glassImg.sprite = RoundedRectSprite;
         glassImg.type = Image.Type.Sliced;
-        glassImg.color = new Color(1f, 1f, 1f, 0.06f); // frosted-glass look: light, translucent
+        glassImg.color = new Color(AERO_BG.r, AERO_BG.g, AERO_BG.b, 0.58f);
         Stretch((RectTransform)glassGO.transform, 0f);
 
         // Mask/viewport so ticks don't spill outside the pill
@@ -581,21 +732,35 @@ public static class DroneUIFX
         contentRT.sizeDelta = new Vector2(360f * pxPerDeg, height);
 
         string[] dirs = { "N", "E", "S", "W" };
-        for (int deg = -360; deg <= 720; deg += 30)
+        for (int deg = -360; deg <= 720; deg += 10)
         {
+            int norm = ((deg % 360) + 360) % 360;
+            bool cardinal = norm % 90 == 0;
+            bool labelled = norm % 30 == 0;
+
+            var markGO = new GameObject($"Mark_{deg}", typeof(RectTransform), typeof(Image));
+            markGO.transform.SetParent(contentGO.transform, false);
+            var mark = markGO.GetComponent<Image>();
+            mark.color = cardinal ? AERO_ACCENT : new Color(AERO_TEXT.r, AERO_TEXT.g, AERO_TEXT.b, labelled ? 0.68f : 0.36f);
+            mark.raycastTarget = false;
+            var markRT = (RectTransform)markGO.transform;
+            markRT.anchorMin = markRT.anchorMax = new Vector2(0.5f, 0f);
+            markRT.sizeDelta = new Vector2(1f, cardinal ? 10f : labelled ? 7f : 4f);
+            markRT.anchoredPosition = new Vector2(deg * pxPerDeg, 1f);
+
+            if (!labelled) continue;
             var tickGO = new GameObject($"Tick_{deg}", typeof(RectTransform));
             tickGO.transform.SetParent(contentGO.transform, false);
             var t = tickGO.AddComponent<TextMeshProUGUI>();
-            int norm = ((deg % 360) + 360) % 360;
             t.text = (norm % 90 == 0) ? dirs[norm / 90] : (norm.ToString());
-            t.fontSize = (norm % 90 == 0) ? 22 : 15;
-            t.fontStyle = (norm % 90 == 0) ? FontStyles.Bold : FontStyles.Normal;
-            t.color = (norm % 90 == 0) ? COL_CYAN : new Color(0.7f, 0.78f, 0.9f, 0.8f);
+            t.fontSize = cardinal ? 13 : 9;
+            t.fontStyle = cardinal ? FontStyles.Bold : FontStyles.Normal;
+            t.color = cardinal ? AERO_ACCENT : new Color(AERO_TEXT.r, AERO_TEXT.g, AERO_TEXT.b, 0.72f);
             t.alignment = TextAlignmentOptions.Center;
             var rt = t.rectTransform;
-            rt.sizeDelta = new Vector2(52, height);
+            rt.sizeDelta = new Vector2(42, height - 7f);
             rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
-            rt.anchoredPosition = new Vector2(deg * pxPerDeg, 0);
+            rt.anchoredPosition = new Vector2(deg * pxPerDeg, 5f);
         }
 
         // Fixed centre pointer
@@ -605,10 +770,10 @@ public static class DroneUIFX
         ptrImg.color = AERO_ACCENT;
         ptrImg.raycastTarget = false;
         var ptrRT = (RectTransform)ptrGO.transform;
-        ptrRT.anchorMin = new Vector2(0.5f, 0f);
-        ptrRT.anchorMax = new Vector2(0.5f, 1f);
-        ptrRT.sizeDelta = new Vector2(2, 0);
-        ptrRT.anchoredPosition = Vector2.zero;
+        ptrRT.anchorMin = ptrRT.anchorMax = new Vector2(0.5f, 0f);
+        ptrRT.pivot = new Vector2(0.5f, 0f);
+        ptrRT.sizeDelta = new Vector2(2, 12);
+        ptrRT.anchoredPosition = new Vector2(0, 1);
 
         return new CompassRibbonFX { tapeContent = contentRT, pixelsPerDegree = pxPerDeg };
     }
@@ -686,10 +851,10 @@ public static class DroneUIFX
         plateRT.anchorMin = plateRT.anchorMax = new Vector2(0.5f, 0.5f);
         plateRT.anchoredPosition = Vector2.zero;
 
-        // Muted aerospace sky/ground — desaturated, not cartoon colours
+        // Instrument colors remain deliberately muted and functional.
         var skyGO = new GameObject("Sky", typeof(RectTransform), typeof(Image));
         skyGO.transform.SetParent(plateGO.transform, false);
-        skyGO.GetComponent<Image>().color = new Color(0.10f, 0.19f, 0.28f);
+        skyGO.GetComponent<Image>().color = new Color(0.10f, 0.30f, 0.46f);
         var skyRT = (RectTransform)skyGO.transform;
         skyRT.anchorMin = new Vector2(0, 0.5f);
         skyRT.anchorMax = new Vector2(1, 1f);
@@ -697,7 +862,7 @@ public static class DroneUIFX
 
         var groundGO = new GameObject("Ground", typeof(RectTransform), typeof(Image));
         groundGO.transform.SetParent(plateGO.transform, false);
-        groundGO.GetComponent<Image>().color = new Color(0.13f, 0.12f, 0.10f);
+        groundGO.GetComponent<Image>().color = new Color(0.24f, 0.17f, 0.11f);
         var groundRT = (RectTransform)groundGO.transform;
         groundRT.anchorMin = new Vector2(0, 0f);
         groundRT.anchorMax = new Vector2(1, 0.5f);
@@ -718,7 +883,7 @@ public static class DroneUIFX
 
             // Major lines (every 10°) are wider, minors thinner
             bool major = (deg % 10) == 0;
-            float w = major ? 0.55f : 2.2f;
+            float w = major ? diameter * 0.34f : diameter * 0.20f;
             Color c = major ? new Color(0.92f, 0.93f, 0.95f, 0.85f) : ladderCol;
             lImg.color = c;
 
@@ -726,8 +891,22 @@ public static class DroneUIFX
             lRT.anchorMin = lRT.anchorMax = new Vector2(0.5f, 0.5f);
             lRT.sizeDelta = new Vector2(w, 1.2f);
             lRT.anchoredPosition = new Vector2(0, deg * pxPerDeg);
-            // major lines span wider than minors (classic AI ladder)
-            if (major) lRT.sizeDelta = new Vector2(diameter * 0.34f, 1.2f);
+            if (major)
+            {
+                var numberGO = new GameObject("Value", typeof(RectTransform));
+                numberGO.transform.SetParent(lGO.transform, false);
+                var number = numberGO.AddComponent<TextMeshProUGUI>();
+                number.text = Mathf.Abs(deg).ToString();
+                number.fontSize = 7;
+                number.color = c;
+                number.alignment = TextAlignmentOptions.MidlineRight;
+                number.raycastTarget = false;
+                var numberRT = number.rectTransform;
+                numberRT.anchorMin = numberRT.anchorMax = new Vector2(0, 0.5f);
+                numberRT.pivot = new Vector2(1, 0.5f);
+                numberRT.anchoredPosition = new Vector2(-4, 0);
+                numberRT.sizeDelta = new Vector2(18, 10);
+            }
         }
 
         var lineGO = new GameObject("HorizonLine", typeof(RectTransform), typeof(Image));
@@ -982,7 +1161,11 @@ public static class DroneUIFX
         {
             if (bg != null) bg.color = Color.Lerp(bg.color, targetBg, dt * 10f);
             if (dot != null) dot.color = Color.Lerp(dot.color, targetDot, dt * 10f);
-            if (label != null && label.text != targetText) label.text = targetText;
+            if (label != null)
+            {
+                if (label.text != targetText) label.text = targetText;
+                label.color = Color.Lerp(label.color, targetDot, dt * 10f);
+            }
         }
     }
 
@@ -1053,14 +1236,14 @@ public static class DroneUIFX
         return new AeroStatusPill { bg = innerImg, dot = dotImg, label = lbl };
     }
 
-    public static void ApplyAeroButtonStyle(GameObject buttonGO, Color accent, bool isDestructive = false)
+    public static AeroButtonHoverFX ApplyAeroButtonStyle(GameObject buttonGO, Color accent, bool isDestructive = false)
     {
         var img = buttonGO.GetComponent<Image>();
         if (img != null)
         {
             img.sprite = RoundedRectSprite;
             img.type = Image.Type.Sliced;
-            img.color = isDestructive ? new Color(0.78f,0.30f,0.30f,0.14f) : new Color(0.14f,0.19f,0.25f,1f);
+            img.color = isDestructive ? Color.Lerp(AERO_CARD, AERO_RED, 0.09f) : AERO_CARD2;
         }
         // flat border
         var borderGO = new GameObject("AeroBorder", typeof(RectTransform), typeof(Image));
@@ -1069,7 +1252,7 @@ public static class DroneUIFX
         var borderImg = borderGO.GetComponent<Image>();
         borderImg.sprite = RoundedRectSprite;
         borderImg.type = Image.Type.Sliced;
-        borderImg.color = isDestructive ? new Color(0.78f,0.30f,0.30f,0.55f) : new Color(0.18f,0.22f,0.28f,1f);
+        borderImg.color = isDestructive ? new Color(AERO_RED.r, AERO_RED.g, AERO_RED.b, 0.58f) : AERO_BORDER;
         borderImg.raycastTarget = false;
         Stretch((RectTransform)borderGO.transform, 0f);
         var innerGO = new GameObject("AeroInner", typeof(RectTransform), typeof(Image));
@@ -1091,30 +1274,75 @@ public static class DroneUIFX
         aeroHover.fillImage = innerImg;
         aeroHover.accent = accent;
         aeroHover.isDestructive = isDestructive;
+        aeroHover.label = buttonGO.GetComponentInChildren<TextMeshProUGUI>();
+        if (aeroHover.label != null) aeroHover.normalTextColor = aeroHover.label.color;
+        aeroHover.SetSelected(false);
+        return aeroHover;
     }
 
     public class AeroButtonHoverFX : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler, IPointerUpHandler
     {
         public Color baseColor, accent;
         public Image borderImage, fillImage;
+        public TextMeshProUGUI label;
+        public Color normalTextColor;
+        public Graphic foreground;
+        public Color normalForegroundColor;
         public bool isDestructive;
+        bool selected;
+        bool hovered;
+        bool pressed;
+        Color targetFill;
+        Color targetBorder;
+
+        public void SetSelected(bool value)
+        {
+            selected = value;
+            RefreshTargets();
+            if (label) label.color = selected ? AERO_TEXT : normalTextColor;
+            if (foreground) foreground.color = selected ? AERO_TEXT : normalForegroundColor;
+        }
+
+        void RefreshTargets()
+        {
+            // Keep the inner fill opaque. A translucent fill reveals the full-size
+            // border sprite underneath and turns the entire button cyan.
+            Color restingFill = selected ? Color.Lerp(AERO_CARD2, accent, 0.12f) : baseColor;
+            Color restingBorder = selected
+                ? new Color(accent.r, accent.g, accent.b, 0.92f)
+                : isDestructive ? new Color(AERO_RED.r, AERO_RED.g, AERO_RED.b, 0.58f) : AERO_BORDER;
+            float blend = pressed ? 0.28f : hovered ? 0.16f : 0f;
+            targetFill = Color.Lerp(restingFill, accent, blend);
+            targetBorder = hovered || pressed ? Color.Lerp(restingBorder, accent, 0.55f) : restingBorder;
+        }
+
+        void Update()
+        {
+            float t = 1f - Mathf.Exp(-16f * Time.unscaledDeltaTime);
+            if (fillImage) fillImage.color = Color.Lerp(fillImage.color, targetFill, t);
+            if (borderImage) borderImage.color = Color.Lerp(borderImage.color, targetBorder, t);
+        }
+
         public void OnPointerEnter(PointerEventData e)
         {
-            if (fillImage) fillImage.color = Color.Lerp(baseColor, accent, 0.18f);
-            if (borderImage) borderImage.color = Color.Lerp(borderImage.color, accent, 0.45f);
+            hovered = true;
+            RefreshTargets();
         }
         public void OnPointerExit(PointerEventData e)
         {
-            if (fillImage) fillImage.color = baseColor;
-            if (borderImage) borderImage.color = isDestructive ? new Color(0.78f,0.30f,0.30f,0.55f) : AERO_BORDER;
+            hovered = false;
+            pressed = false;
+            RefreshTargets();
         }
         public void OnPointerDown(PointerEventData e)
         {
-            if (fillImage) fillImage.color = Color.Lerp(baseColor, accent, 0.30f);
+            pressed = true;
+            RefreshTargets();
         }
         public void OnPointerUp(PointerEventData e)
         {
-            if (fillImage) fillImage.color = Color.Lerp(baseColor, accent, 0.18f);
+            pressed = false;
+            RefreshTargets();
         }
     }
 
@@ -1153,8 +1381,8 @@ public static class DroneUIFX
         Stretch((RectTransform)innerGO.transform, 1f);
 
         var vl = card.AddComponent<VerticalLayoutGroup>();
-        vl.padding = new RectOffset(12, 12, 10, 8);
-        vl.spacing = 6;
+        vl.padding = new RectOffset(8, 8, 7, 6);
+        vl.spacing = 4;
         vl.childForceExpandWidth = true;
         vl.childForceExpandHeight = false;
         vl.childControlHeight = true;
@@ -1162,27 +1390,35 @@ public static class DroneUIFX
         // Header row: title left, value right
         var headerGO = new GameObject("Header", typeof(RectTransform));
         headerGO.transform.SetParent(card.transform, false);
-        headerGO.AddComponent<LayoutElement>().preferredHeight = 22;
+        headerGO.AddComponent<LayoutElement>().preferredHeight = 20;
         var hl = headerGO.AddComponent<HorizontalLayoutGroup>();
-        hl.childForceExpandWidth = true;
+        hl.spacing = 6;
+        hl.childForceExpandWidth = false;
         hl.childAlignment = TextAnchor.MiddleLeft;
+
+        IconType graphIcon = title.Contains("ALTITUDE") ? IconType.Altitude
+            : title.Contains("SPEED") ? IconType.Speed
+            : title.Contains("BATTERY") ? IconType.Battery
+            : IconType.Telemetry;
+        CreateIcon(headerGO.transform, graphIcon, 13f, AERO_TEXT_SEC);
 
         var titleGO = new GameObject("Title", typeof(RectTransform));
         titleGO.transform.SetParent(headerGO.transform, false);
         var titleTMP = titleGO.AddComponent<TextMeshProUGUI>();
         titleTMP.text = title;
-        titleTMP.fontSize = 11;
+        titleTMP.fontSize = 9;
         titleTMP.fontStyle = FontStyles.Bold;
         titleTMP.color = AERO_TEXT_DIM;
         titleTMP.alignment = TextAlignmentOptions.MidlineLeft;
         // letter spacing for aerospace label
-        titleTMP.characterSpacing = 8f;
+        titleTMP.characterSpacing = 10f;
+        titleGO.AddComponent<LayoutElement>().flexibleWidth = 1;
 
         var valueGO = new GameObject("Value", typeof(RectTransform));
         valueGO.transform.SetParent(headerGO.transform, false);
         var valueTMP = valueGO.AddComponent<TextMeshProUGUI>();
         valueTMP.text = "-- " + unit;
-        valueTMP.fontSize = 15;
+        valueTMP.fontSize = 13;
         valueTMP.fontStyle = FontStyles.Bold;
         valueTMP.color = AERO_NUM;
         valueTMP.alignment = TextAlignmentOptions.MidlineRight;
@@ -1194,22 +1430,44 @@ public static class DroneUIFX
         graphGO.transform.SetParent(card.transform, false);
         graphGO.AddComponent<LayoutElement>().flexibleHeight = 1;
         var graphBg = graphGO.GetComponent<Image>();
-        graphBg.sprite = RoundedRectSprite;
-        graphBg.type = Image.Type.Sliced;
-        graphBg.color = new Color(0.07f, 0.10f, 0.14f, 1f);
+        graphBg.color = new Color(AERO_BG.r, AERO_BG.g, AERO_BG.b, 0.55f);
         graphBg.raycastTarget = false;
 
         var innerGraphGO = new GameObject("GraphPlot", typeof(RectTransform));
         innerGraphGO.transform.SetParent(graphGO.transform, false);
         var rt = innerGraphGO.GetComponent<RectTransform>();
         rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
-        rt.offsetMin = new Vector2(8, 8); rt.offsetMax = new Vector2(-8, -8);
+        rt.offsetMin = new Vector2(5, 4); rt.offsetMax = new Vector2(-5, -4);
         var graph = innerGraphGO.AddComponent<TelemetryGraph>();
         graph.lineColor = accent;
-        graph.fillColor = new Color(accent.r, accent.g, accent.b, 0.09f);
-        graph.gridColor = new Color(1f, 1f, 1f, 0.06f);
-        graph.thickness = 1.8f;
+        graph.fillColor = new Color(accent.r, accent.g, accent.b, 0.11f);
+        graph.gridColor = new Color(0.18f, 0.54f, 0.64f, 0.16f);
+        graph.thickness = 2.1f;
         graph.raycastTarget = false;
+
+        var axisGO = new GameObject("TimeAxis", typeof(RectTransform));
+        axisGO.transform.SetParent(card.transform, false);
+        axisGO.AddComponent<LayoutElement>().preferredHeight = 10;
+        string[] labels = { "-60s", "-45s", "-30s", "-15s", "0s" };
+        for (int i = 0; i < labels.Length; i++)
+        {
+            var labelGO = new GameObject(labels[i], typeof(RectTransform));
+            labelGO.transform.SetParent(axisGO.transform, false);
+            var label = labelGO.AddComponent<TextMeshProUGUI>();
+            label.text = labels[i];
+            label.fontSize = 7;
+            label.color = AERO_TEXT_DIM;
+            label.alignment = i == 0 ? TextAlignmentOptions.MidlineLeft
+                : i == labels.Length - 1 ? TextAlignmentOptions.MidlineRight
+                : TextAlignmentOptions.Center;
+            label.raycastTarget = false;
+            var labelRT = label.rectTransform;
+            float anchor = i / (float)(labels.Length - 1);
+            labelRT.anchorMin = labelRT.anchorMax = new Vector2(anchor, 0.5f);
+            labelRT.pivot = new Vector2(anchor, 0.5f);
+            labelRT.anchoredPosition = Vector2.zero;
+            labelRT.sizeDelta = new Vector2(34, 10);
+        }
 
         return graph;
     }

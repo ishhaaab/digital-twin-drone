@@ -55,6 +55,7 @@ public class DroneUIUpdater : MonoBehaviour
     [HideInInspector] public TextMeshProUGUI latMaxText;  // LatencyStats.max
     [HideInInspector] public TextMeshProUGUI latVarText;  // LatencyStats.variance
     [HideInInspector] public TextMeshProUGUI packetRateText; // derived pkts/s
+    [HideInInspector] public TextMeshProUGUI packetLossText; // unavailable without a packet sequence number
 
     // ── ALARM ──────────────────────────────────────────────────────────
     [HideInInspector] public TextMeshProUGUI alarmBannerText;
@@ -68,6 +69,10 @@ public class DroneUIUpdater : MonoBehaviour
     [HideInInspector] public TextMeshProUGUI hudSpeedText;
     [HideInInspector] public TextMeshProUGUI hudModeText;
     [HideInInspector] public TextMeshProUGUI hudArmedText;
+    [HideInInspector] public TextMeshProUGUI hudLatText;
+    [HideInInspector] public TextMeshProUGUI hudLonText;
+    [HideInInspector] public TextMeshProUGUI hudGpsAltText;
+    [HideInInspector] public DroneMapView mapView;
 
     // ── GRAPH refs ─────────────────────────────────────────────────────
     [HideInInspector] public TelemetryGraph altitudeGraph;
@@ -84,6 +89,12 @@ public class DroneUIUpdater : MonoBehaviour
     [HideInInspector] public TextMeshProUGUI gpsStatusText;
     [HideInInspector] public TextMeshProUGUI imuStatusText;
     [HideInInspector] public TextMeshProUGUI powerStatusText;
+    [HideInInspector] public TextMeshProUGUI barometerStatusText;
+
+    // ── FLIGHT MODE BUTTON STATES ───────────────────────────────────────
+    [HideInInspector] public DroneUIFX.AeroButtonHoverFX stabilizeButtonStyle;
+    [HideInInspector] public DroneUIFX.AeroButtonHoverFX altHoldButtonStyle;
+    [HideInInspector] public DroneUIFX.AeroButtonHoverFX posHoldButtonStyle;
 
     // ── FX widgets ─────────────────────────────────────────────────────
     [HideInInspector] public DroneUIFX.RadialGaugeFX   batteryRing;
@@ -137,10 +148,13 @@ public class DroneUIUpdater : MonoBehaviour
     float rateWindow = 0f;
     int rateCount = 0;
     float displayedRate = 0f;
+    const float GraphSamplePeriod = 0.2f;
+    float graphSampleElapsed = GraphSamplePeriod;
 
     void Update()
     {
         uptime += Time.deltaTime;
+        graphSampleElapsed += Time.deltaTime;
         SetText(uptimeText, FormatTime(uptime));
 
         if (dataReceiver == null) return;
@@ -178,16 +192,20 @@ public class DroneUIUpdater : MonoBehaviour
         SetText(hudArmedText, armed0 ? "ARMED" : "DISARMED");
         if (armedText != null) armedText.color = armed0 ? DroneUIFX.AERO_GREEN : DroneUIFX.AERO_AMBER;
         if (hudArmedText != null) hudArmedText.color = armed0 ? DroneUIFX.AERO_GREEN : DroneUIFX.AERO_AMBER;
+        string normalizedMode = (d0.flight_mode ?? "").Replace(" ", "_").ToUpperInvariant();
+        stabilizeButtonStyle?.SetSelected(normalizedMode == "STABILIZE");
+        altHoldButtonStyle?.SetSelected(normalizedMode == "ALT_HOLD");
+        posHoldButtonStyle?.SetSelected(normalizedMode == "POSHOLD" || normalizedMode == "POS_HOLD");
 
         // ── Latency pill + gauge ────────────────────────────────────────
         var ls = dataReceiver.latencyStats;
         if (ls.min < float.MaxValue)
         {
             // legacy rows — units baked in for right-panel text-first rows
-            SetText(latMeanText, $"{ls.mean:F1} ms");
-            SetText(latMinText,  $"{ls.min:F1} ms");
-            SetText(latMaxText,  $"{ls.max:F1} ms");
-            SetText(latVarText,  $"{ls.variance:F2} ms²");
+            SetText(latMeanText, $"{ls.mean:F0}");
+            SetText(latMinText,  $"{ls.min:F1}");
+            SetText(latMaxText,  $"{ls.max:F1}");
+            SetText(latVarText,  $"{Mathf.Sqrt(Mathf.Max(0f, ls.variance)):F1}");
 
             string latStr = $"{ls.mean:F0} ms";
             SetText(latencyText, latStr);
@@ -224,8 +242,9 @@ public class DroneUIUpdater : MonoBehaviour
         {
             displayedRate = rateCount / rateWindow;
             rateWindow = 0f; rateCount = 0;
-            SetText(packetRateText, $"{displayedRate:F1} pkts/s");
+            SetText(packetRateText, $"{displayedRate:F1}");
         }
+        SetText(packetLossText, "--");
         // sats top bar + right panel
         if (d0.satellites >= 0)
         {
@@ -244,16 +263,16 @@ public class DroneUIUpdater : MonoBehaviour
             if (gpsSatText != null) gpsSatText.color = COL_STALE;
         }
 
-        SetStatus(telemetryStatusText, dataReceiver.isConnected ? "LIVE" : "LOST",
+        SetStatus(telemetryStatusText, dataReceiver.isConnected ? "OK" : "LOST",
             dataReceiver.isConnected ? DroneUIFX.AERO_GREEN : DroneUIFX.AERO_RED);
         bool gpsFix = d0.satellites >= gpsDegradedSats;
-        string gpsState = d0.satellites < 0 ? "WAIT" : gpsFix ? "FIX" : "DEGRADED";
+        string gpsState = d0.satellites < 0 ? "WAIT" : gpsFix ? "OK" : "DEGRADED";
         Color gpsStateColor = d0.satellites < 0 ? COL_STALE : gpsFix ? DroneUIFX.AERO_GREEN : DroneUIFX.AERO_AMBER;
         SetStatus(gpsStatusText, gpsState, gpsStateColor);
-        SetStatus(imuStatusText, dataReceiver.isConnected ? "STREAM" : "WAIT",
+        SetStatus(imuStatusText, dataReceiver.isConnected ? "OK" : "WAIT",
             dataReceiver.isConnected ? DroneUIFX.AERO_GREEN : COL_STALE);
-        bool powerLive = dataReceiver.isConnected && d0.voltage > 0.01f;
-        SetStatus(powerStatusText, powerLive ? "LIVE" : "WAIT", powerLive ? DroneUIFX.AERO_GREEN : COL_STALE);
+        SetStatus(barometerStatusText, dataReceiver.isConnected ? "OK" : "WAIT",
+            dataReceiver.isConnected ? DroneUIFX.AERO_GREEN : COL_STALE);
 
         if (!dataReceiver.newDataAvailable) return;
         dataReceiver.newDataAvailable = false;
@@ -283,12 +302,16 @@ public class DroneUIUpdater : MonoBehaviour
         SetText(centerHeadingText, heading);
         horizon?.SetAttitude(d.pitch, d.roll);
         compassRibbon?.SetHeading(d.yaw);
+        mapView?.SetTelemetry(d.x, d.y, d.lat, d.lon, d.yaw);
 
         // ── GPS ────────────────────────────────────────────────────────
         Color gpsCol = d.satellites >= 0 ? DroneUIFX.AERO_NUM : COL_STALE;
-        SetText(latText,    $"{d.lat:F4}°");
-        SetText(lonText,    $"{d.lon:F4}°");
-        SetText(gpsAltText, $"{d.gps_alt:F1} m");
+        SetText(latText,    $"{d.lat:F4}");
+        SetText(lonText,    $"{d.lon:F4}");
+        SetText(gpsAltText, $"{d.gps_alt:F1}");
+        SetText(hudLatText, $"{d.lat:F4}");
+        SetText(hudLonText, $"{d.lon:F4}");
+        SetText(hudGpsAltText, $"{d.gps_alt:F1} m");
         SetTextColor(latText, gpsCol); SetTextColor(lonText, gpsCol); SetTextColor(gpsAltText, gpsCol);
 
         float gpsQuality = ComputeGpsQuality(d);
@@ -309,29 +332,31 @@ public class DroneUIUpdater : MonoBehaviour
         }
 
         // ── Electrical ─────────────────────────────────────────────────
-        SetText(voltageText, $"{d.voltage:F2} V");
-        SetText(currentText, $"{d.current:F1} A");
+        SetText(voltageText, $"{d.voltage:F2}");
+        SetText(currentText, $"{d.current:F1}");
         if (voltageText != null) voltageText.color = d.voltage > 0.01f && d.voltage < 14.0f ? DroneUIFX.AERO_AMBER : DroneUIFX.AERO_NUM;
 
         // ── Speed ──────────────────────────────────────────────────────
-        SetText(speedText, $"{d.speed:F2} m/s");
-        SetText(verticalSpeedText, $"{d.vz:F2} m/s");
+        SetText(speedText, $"{d.speed:F2}");
+        SetText(verticalSpeedText, $"{d.vz:F2}");
 
-        // ── Graphs — push verified history (bounded, no allocations) ──
+        // ── Graph headers update per packet; 5 Hz samples retain 60 seconds. ──
+        bool sampleGraphs = graphSampleElapsed >= GraphSamplePeriod;
+        if (sampleGraphs) graphSampleElapsed %= GraphSamplePeriod;
         if (altitudeGraph != null)
         {
-            altitudeGraph.Push(d.z);
+            if (sampleGraphs) altitudeGraph.Push(d.z);
             if (altitudeGraphValue != null) altitudeGraphValue.text = $"{d.z:F1} m";
         }
         if (speedGraph != null)
         {
-            speedGraph.Push(d.speed);
+            if (sampleGraphs) speedGraph.Push(d.speed);
             if (speedGraphValue != null) speedGraphValue.text = $"{d.speed:F2} m/s";
         }
         if (latencyGraph != null)
         {
             float lat = ls.min < float.MaxValue ? ls.mean : 0f;
-            latencyGraph.Push(lat);
+            if (sampleGraphs) latencyGraph.Push(lat);
             if (latencyGraphValue != null) latencyGraphValue.text = $"{lat:F0} ms";
         }
 
@@ -342,7 +367,7 @@ public class DroneUIUpdater : MonoBehaviour
         if (batteryBar != null) batteryBar.SetValue01(batt / 100f);
         if (batteryGraph != null)
         {
-            batteryGraph.Push(batt);
+            if (sampleGraphs) batteryGraph.Push(batt);
             if (batteryGraphValue != null) batteryGraphValue.text = $"{batt}%";
         }
         if (batteryPercentText != null)
@@ -433,7 +458,7 @@ public class DroneUIUpdater : MonoBehaviour
         float a = Mathf.Abs(val);
         if (a >= vibCriticalThreshold) t.color = DroneUIFX.AERO_RED;
         else if (a >= vibHighThreshold) t.color = DroneUIFX.AERO_AMBER;
-        else t.color = DroneUIFX.AERO_GREEN;
+        else t.color = DroneUIFX.AERO_ACCENT;
     }
 
     void SetStatus(TextMeshProUGUI value, string text, Color color)

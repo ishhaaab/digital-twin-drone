@@ -7,14 +7,9 @@ public class DroneController : MonoBehaviour
 
     // ─────────────────────────────────────────────
     [Header("Position Scaling")]
-    [Tooltip("Scale for East movement (NED Y)")]
-    public float xScale = 0.25f;
-
-    [Tooltip("Scale for Altitude movement (NED Z). Keep at 1.0")]
-    public float yScale = 1.0f;
-
-    [Tooltip("Scale for North movement (NED X)")]
-    public float zScale = 0.25f;
+    [Min(0.0001f)]
+    [Tooltip("Uniform conversion from telemetry meters to Unity units. Keep at 1 for physically correct geometry.")]
+    public float metersToUnity = 1f;
 
     // ─────────────────────────────────────────────
     [Header("Position Axis Flip")]
@@ -49,7 +44,6 @@ public class DroneController : MonoBehaviour
     public float rotationSmooth = 6f;
 
     [Header("Stability")]
-    public float maxDistance = 50f;
     public float deadzone = 0.001f;
 
     public enum RotationSource { Roll, Pitch, Yaw }
@@ -72,17 +66,15 @@ public class DroneController : MonoBehaviour
         //   Unity Z = North = NED X
         // =============================
 
-        float posX = d.y * xScale;   // East
-        float posY = d.z * yScale;   // Up — d.z already positive-up from Python
-        float posZ = d.x * zScale;   // North
+        float posX = d.y * metersToUnity;   // East
+        float posY = d.z * metersToUnity;   // Up — d.z already positive-up from Python
+        float posZ = d.x * metersToUnity;   // North
 
         if (invertX) posX = -posX;
         if (invertY) posY = -posY;
         if (invertZ) posZ = -posZ;
 
         Vector3 target = new Vector3(posX, posY, posZ);
-
-        target = Vector3.ClampMagnitude(target, maxDistance);
 
         if (Vector3.Distance(target, lastTarget) < deadzone)
             target = lastTarget;
@@ -117,6 +109,11 @@ public class DroneController : MonoBehaviour
 
         // 🔥 Uncomment to debug in Console:
         // Debug.Log($"d.z={d.z:F2}  posY={posY:F2}  target.y={target.y:F2}");
+    }
+
+    void OnValidate()
+    {
+        if (metersToUnity <= 0f) metersToUnity = 1f;
     }
 
     float GetRotation(DroneData d, RotationSource src)

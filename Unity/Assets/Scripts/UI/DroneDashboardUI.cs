@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using System.Collections.Generic;
 
 // Professional Aerospace Ground Control Station — overhaul
 //
@@ -38,6 +39,11 @@ public class DroneDashboardUI : MonoBehaviour
     [Header("Drone Camera View")]
     public RenderTexture droneViewTexture;
 
+    [Header("Map Tiles")]
+    [Range(3, 19)] public int mapZoom = 19;
+    public string mapTileUrlTemplate = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+    public string mapTileUserAgent = "DigitalTwinDrone/1.0 (+https://github.com/ishhaaab/digital-twin-drone)";
+
     // Palette — single source of truth is DroneUIFX.AERO_*
     static Color BG => DroneUIFX.AERO_BG;
     static Color PANEL => DroneUIFX.AERO_PANEL;
@@ -55,20 +61,43 @@ public class DroneDashboardUI : MonoBehaviour
     static Color NUM => DroneUIFX.AERO_NUM;
 
     // Control accent colours (semantic, not decorative)
-    static readonly Color BTN_MODE_ACCENT  = new Color(0.22f, 0.55f, 0.62f, 1f);
-    static readonly Color BTN_LAND_ACCENT  = new Color(0.86f, 0.62f, 0.22f, 1f);
-    static readonly Color BTN_DISARM_ACCENT= new Color(0.78f, 0.30f, 0.30f, 1f);
+    static readonly Color BTN_MODE_ACCENT  = new Color(0.125f, 0.847f, 0.941f, 1f);
+    static readonly Color BTN_LAND_ACCENT  = new Color(0.953f, 0.714f, 0.184f, 1f);
+    static readonly Color BTN_DISARM_ACCENT= new Color(0.941f, 0.310f, 0.310f, 1f);
 
-    const float OUTER_PAD = 16f;
-    const float GAP = 10f;
-    const float LEFT_W = 380f;
-    const float RIGHT_W = 380f;
-    const float TOP_H = 72f;
-    const float BOTTOM_H = 188f;
+    const float OUTER_PAD = 8f;
+    const float GAP = 7f;
+    const float TOP_H = 54f;
+    const float BOTTOM_H = 162f;
+    const float LEFT_EDGE = 0.195f;
+    const float RIGHT_EDGE = 0.805f;
 
     DroneUIUpdater ui;
     DroneDataReceiver rx;
     DroneUIFX.UIFXAnimator fx;
+    Canvas dashboardCanvas;
+    RectTransform centerViewport;
+    DroneViewportCameraController viewportCamera;
+    DroneMapView mapView;
+    OpenStreetMapTileLayer mapTileLayer;
+    GameObject droneViewLayer;
+    GameObject mapViewLayer;
+    GameObject cameraModesOverlay;
+    GameObject mapControlsOverlay;
+    GameObject settingsPanel;
+    readonly List<DroneUIFX.AeroButtonHoverFX> cameraModeStyles = new List<DroneUIFX.AeroButtonHoverFX>();
+    readonly List<DroneUIFX.AeroButtonHoverFX> viewModeStyles = new List<DroneUIFX.AeroButtonHoverFX>();
+    DroneUIFX.AeroButtonHoverFX topCameraStyle;
+    DroneUIFX.AeroButtonHoverFX topMapStyle;
+    DroneUIFX.AeroButtonHoverFX settingsStyle;
+    DroneUIFX.AeroButtonHoverFX layersStyle;
+    DroneUIFX.AeroButtonHoverFX lightingStyle;
+    DroneUIFX.AeroButtonHoverFX fullscreenStyle;
+    bool pathVisible = true;
+    bool lightingEnabled = true;
+    bool viewportFullscreen;
+    Vector2 viewportAnchorMin, viewportAnchorMax, viewportOffsetMin, viewportOffsetMax;
+    int viewportSiblingIndex;
 
     void Awake()
     {
@@ -93,7 +122,9 @@ public class DroneDashboardUI : MonoBehaviour
         DroneSkyEnvironment.EnsureSceneSky();
 
         var cgo = new GameObject("DroneCanvas");
+        cgo.transform.SetParent(transform, false);
         var canvas = cgo.AddComponent<Canvas>();
+        dashboardCanvas = canvas;
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         canvas.sortingOrder = 0;
         var scaler = cgo.AddComponent<CanvasScaler>();
@@ -128,28 +159,30 @@ public class DroneDashboardUI : MonoBehaviour
         BuildTopBar(topBar);
 
         var leftOuter = MakeImage("LeftPanel", root, new Color(0, 0, 0, 0),
-            new Vector2(0, 0), new Vector2(0, 1),
-            new Vector2(OUTER_PAD, OUTER_PAD), new Vector2(OUTER_PAD + LEFT_W, -TOP_H - GAP));
+            new Vector2(0, 0), new Vector2(LEFT_EDGE, 1),
+            new Vector2(OUTER_PAD, OUTER_PAD), new Vector2(-GAP * 0.5f, -TOP_H - GAP));
         BuildLeftPanel(leftOuter);
 
         var rightOuter = MakeImage("RightPanel", root, new Color(0, 0, 0, 0),
-            new Vector2(1, 0), new Vector2(1, 1),
-            new Vector2(-OUTER_PAD - RIGHT_W, OUTER_PAD), new Vector2(-OUTER_PAD, -TOP_H - GAP));
+            new Vector2(RIGHT_EDGE, 0), new Vector2(1, 1),
+            new Vector2(GAP * 0.5f, OUTER_PAD), new Vector2(-OUTER_PAD, -TOP_H - GAP));
         BuildRightPanel(rightOuter);
 
         var center = MakeImage("CenterViewport", root, new Color(0.05f, 0.07f, 0.10f, 1f),
-            new Vector2(0, 0), new Vector2(1, 1),
-            new Vector2(OUTER_PAD + LEFT_W + GAP, BOTTOM_H + GAP),
-            new Vector2(-OUTER_PAD - RIGHT_W - GAP, -TOP_H - GAP));
+            new Vector2(LEFT_EDGE, 0), new Vector2(RIGHT_EDGE, 1),
+            new Vector2(GAP * 0.5f, BOTTOM_H + GAP),
+            new Vector2(-GAP * 0.5f, -TOP_H - GAP));
+        centerViewport = (RectTransform)center.transform;
         StylePanel(center);
         BuildCameraView(center);
+        BuildMapView(center);
         BuildCenterHud(center);
         BuildAlarmBanner(center);
 
         var bottomBar = MakeImage("TelemetryRail", root, new Color(0, 0, 0, 0),
-            new Vector2(0, 0), new Vector2(1, 0),
-            new Vector2(OUTER_PAD + LEFT_W + GAP, OUTER_PAD),
-            new Vector2(-OUTER_PAD - RIGHT_W - GAP, BOTTOM_H));
+            new Vector2(LEFT_EDGE, 0), new Vector2(RIGHT_EDGE, 0),
+            new Vector2(GAP * 0.5f, OUTER_PAD),
+            new Vector2(-GAP * 0.5f, BOTTOM_H));
         BuildBottomBar(bottomBar);
 
         Debug.Log("[DashboardUI] Aerospace GCS layout built.");
@@ -159,141 +192,225 @@ public class DroneDashboardUI : MonoBehaviour
     void BuildTopBar(GameObject bar)
     {
         var hl = bar.AddComponent<HorizontalLayoutGroup>();
-        hl.padding = new RectOffset(16, 12, 7, 7);
-        hl.spacing = 12;
+        hl.padding = new RectOffset(11, 9, 5, 5);
+        hl.spacing = 8;
         hl.childAlignment = TextAnchor.MiddleLeft;
         hl.childForceExpandHeight = true;
         hl.childForceExpandWidth = false;
         hl.childControlHeight = true;
 
-        CreateBadge(bar.transform, "DRONE TWIN", "FLIGHT CONTROL SYSTEM");
+        CreateBrand(bar.transform);
 
         TopBarSep(bar);
-        var connPill = DroneUIFX.CreateAeroStatusPill(bar.transform, "ConnPill", 176, 34);
+        var connPill = TopLiveField(bar, "MAVLINK", "CONNECTION LOST", 146, DroneUIFX.IconType.Connection, true);
         fx.widgets.Add(connPill);
         ui.connectionPill = connPill;
         ui.connectionText = connPill.label;
 
-        ui.flightModeText = TopBarField(bar, "MODE", "UNKNOWN", 132);
-        ui.armedText = TopBarField(bar, "ARMED", "DISARMED", 118);
-
+        TopBarSep(bar);
+        ui.flightModeText = TopBarField(bar, "MODE", "UNKNOWN", 108, DroneUIFX.IconType.Mode);
+        TopBarSep(bar);
+        ui.armedText = TopBarField(bar, "ARMED", "DISARMED", 108, DroneUIFX.IconType.Lock);
         TopBarSep(bar);
 
-        var latPill = DroneUIFX.CreateAeroStatusPill(bar.transform, "LatPill", 106, 34);
+        var latPill = TopLiveField(bar, "LINK", "-- ms", 92, DroneUIFX.IconType.Signal, false);
         fx.widgets.Add(latPill);
         ui.latencyPill = latPill;
         ui.latencyText = latPill.label;
 
-        ui.satTopText = TopBarField(bar, "GPS", "-- SAT", 96);
-        ui.topHeadingText = TopBarField(bar, "HEADING", "---°", 98);
-        ui.uptimeText = TopBarField(bar, "UPTIME", "00:00:00", 112);
+        TopBarSep(bar);
+        ui.satTopText = TopBarField(bar, "GPS", "-- SAT", 92, DroneUIFX.IconType.Gps);
+        TopBarSep(bar);
+        ui.topHeadingText = TopBarField(bar, "HEADING", "---°", 98, DroneUIFX.IconType.Heading);
+        TopBarSep(bar);
+        ui.uptimeText = TopBarField(bar, "UPTIME", "00:00:00", 116, DroneUIFX.IconType.Clock);
 
         var spacer = new GameObject("FlexibleSpace", typeof(RectTransform));
         spacer.transform.SetParent(bar.transform, false);
         spacer.AddComponent<LayoutElement>().flexibleWidth = 1;
 
-        TopUtility(bar, "CAM");
-        TopUtility(bar, "MAP");
-        TopUtility(bar, "CFG");
+        topCameraStyle = TopUtility(bar, "Camera", DroneUIFX.IconType.Camera, true, () => SetMapView(false));
+        topMapStyle = TopUtility(bar, "Map", DroneUIFX.IconType.Map, false, () => SetMapView(true));
+        settingsStyle = TopUtility(bar, "Settings", DroneUIFX.IconType.Settings, false, ToggleSettingsPanel);
     }
 
-    void TopUtility(GameObject bar, string label)
+    DroneUIFX.AeroButtonHoverFX TopUtility(GameObject bar, string name, DroneUIFX.IconType icon, bool active,
+        UnityEngine.Events.UnityAction callback)
     {
-        var go = new GameObject(label, typeof(RectTransform), typeof(Image));
+        var go = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Button));
         go.transform.SetParent(bar.transform, false);
-        go.AddComponent<LayoutElement>().preferredWidth = 42;
+        var le = go.AddComponent<LayoutElement>();
+        le.preferredWidth = 32;
+        le.preferredHeight = 32;
         var img = go.GetComponent<Image>();
         img.sprite = DroneUIFX.RoundedRectSprite;
         img.type = Image.Type.Sliced;
-        img.color = new Color(0.08f, 0.12f, 0.16f, 1f);
-        img.raycastTarget = false;
+        img.color = active ? new Color(ACCENT.r, ACCENT.g, ACCENT.b, 0.11f) : new Color(0, 0, 0, 0);
+        var button = go.GetComponent<Button>();
+        button.targetGraphic = img;
+        if (callback != null) button.onClick.AddListener(callback);
 
-        var textGO = new GameObject("Label", typeof(RectTransform));
-        textGO.transform.SetParent(go.transform, false);
-        var text = textGO.AddComponent<TextMeshProUGUI>();
-        text.text = label;
-        text.fontSize = 9;
-        text.fontStyle = FontStyles.Bold;
-        text.characterSpacing = 8;
-        text.color = label == "CAM" ? ACCENT : TXT_SEC;
-        text.alignment = TextAlignmentOptions.Center;
-        text.raycastTarget = false;
-        Stretch(text.rectTransform);
+        var iconImage = DroneUIFX.CreateIcon(go.transform, icon, 16f, active ? ACCENT : TXT_DIM);
+        var iconRT = iconImage.rectTransform;
+        iconRT.anchorMin = iconRT.anchorMax = new Vector2(0.5f, 0.5f);
+        iconRT.anchoredPosition = Vector2.zero;
+        iconRT.sizeDelta = new Vector2(16, 16);
+        var style = DroneUIFX.ApplyAeroButtonStyle(go, ACCENT);
+        style.foreground = iconImage;
+        style.normalForegroundColor = TXT_DIM;
+        style.SetSelected(active);
+        iconImage.transform.SetAsLastSibling();
+        return style;
     }
 
-    TextMeshProUGUI TopBarField(GameObject bar, string label, string initial, float width)
+    TextMeshProUGUI TopBarField(GameObject bar, string label, string initial, float width, DroneUIFX.IconType icon)
     {
         var go = new GameObject(label + "Field", typeof(RectTransform));
         go.transform.SetParent(bar.transform, false);
         var le = go.AddComponent<LayoutElement>();
         le.preferredWidth = width;
-        le.preferredHeight = 30;
-        var vl = go.AddComponent<VerticalLayoutGroup>();
-        vl.childAlignment = TextAnchor.MiddleCenter;
-        vl.spacing = 1;
+        le.preferredHeight = 34;
+        var hl = go.AddComponent<HorizontalLayoutGroup>();
+        hl.childAlignment = TextAnchor.MiddleLeft;
+        hl.spacing = 7;
+        hl.childForceExpandWidth = false;
+
+        DroneUIFX.CreateIcon(go.transform, icon, 14f, TXT_DIM);
+        var textCol = new GameObject("Text", typeof(RectTransform));
+        textCol.transform.SetParent(go.transform, false);
+        textCol.AddComponent<LayoutElement>().flexibleWidth = 1;
+        var vl = textCol.AddComponent<VerticalLayoutGroup>();
+        vl.childAlignment = TextAnchor.MiddleLeft;
+        vl.spacing = -1;
         vl.childForceExpandWidth = true;
-        vl.padding = new RectOffset(0, 0, 0, 0);
 
         var lblGO = new GameObject("Lbl");
-        lblGO.transform.SetParent(go.transform, false);
+        lblGO.transform.SetParent(textCol.transform, false);
         var lbl = lblGO.AddComponent<TextMeshProUGUI>();
         lbl.text = label;
-        lbl.fontSize = 9;
-        lbl.characterSpacing = 12;
+        lbl.fontSize = 8;
+        lbl.characterSpacing = 9;
         lbl.fontStyle = FontStyles.Bold;
         lbl.color = TXT_DIM;
-        lbl.alignment = TextAlignmentOptions.Center;
+        lbl.alignment = TextAlignmentOptions.MidlineLeft;
 
         var valGO = new GameObject("Val");
-        valGO.transform.SetParent(go.transform, false);
+        valGO.transform.SetParent(textCol.transform, false);
         var val = valGO.AddComponent<TextMeshProUGUI>();
         val.text = initial;
-        val.fontSize = 13;
+        val.fontSize = 12;
         val.fontStyle = FontStyles.Bold;
         val.color = TXT;
-        val.alignment = TextAlignmentOptions.Center;
+        val.alignment = TextAlignmentOptions.MidlineLeft;
         return val;
     }
 
-    GameObject CreateBadge(Transform parent, string line1, string line2)
+    DroneUIFX.AeroStatusPill TopLiveField(GameObject bar, string label, string initial, float width,
+        DroneUIFX.IconType icon, bool useDot)
     {
-        var go = new GameObject("Badge", typeof(RectTransform));
+        var go = new GameObject(label + "LiveField", typeof(RectTransform));
+        go.transform.SetParent(bar.transform, false);
+        var layout = go.AddComponent<LayoutElement>();
+        layout.preferredWidth = width;
+        layout.preferredHeight = 34;
+        var row = go.AddComponent<HorizontalLayoutGroup>();
+        row.spacing = 7;
+        row.childAlignment = TextAnchor.MiddleLeft;
+        row.childForceExpandWidth = false;
+
+        Image stateImage;
+        if (useDot)
+        {
+            var dotGO = new GameObject("State", typeof(RectTransform), typeof(Image));
+            dotGO.transform.SetParent(go.transform, false);
+            stateImage = dotGO.GetComponent<Image>();
+            stateImage.sprite = DroneUIFX.CircleSprite;
+            stateImage.color = TXT_DIM;
+            var dotLayout = dotGO.AddComponent<LayoutElement>();
+            dotLayout.preferredWidth = 8;
+            dotLayout.preferredHeight = 8;
+        }
+        else
+        {
+            stateImage = DroneUIFX.CreateIcon(go.transform, icon, 14f, TXT_DIM);
+        }
+
+        var textCol = new GameObject("Text", typeof(RectTransform));
+        textCol.transform.SetParent(go.transform, false);
+        textCol.AddComponent<LayoutElement>().flexibleWidth = 1;
+        var col = textCol.AddComponent<VerticalLayoutGroup>();
+        col.spacing = -1;
+        col.childAlignment = TextAnchor.MiddleLeft;
+        col.childForceExpandWidth = true;
+
+        var valueGO = new GameObject("Value", typeof(RectTransform));
+        valueGO.transform.SetParent(textCol.transform, false);
+        var value = valueGO.AddComponent<TextMeshProUGUI>();
+        value.text = initial;
+        value.fontSize = 11;
+        value.fontStyle = FontStyles.Bold;
+        value.color = TXT;
+        value.alignment = TextAlignmentOptions.MidlineLeft;
+
+        var labelGO = new GameObject("Label", typeof(RectTransform));
+        labelGO.transform.SetParent(textCol.transform, false);
+        var caption = labelGO.AddComponent<TextMeshProUGUI>();
+        caption.text = label;
+        caption.fontSize = 8;
+        caption.characterSpacing = 9;
+        caption.fontStyle = FontStyles.Bold;
+        caption.color = TXT_DIM;
+        caption.alignment = TextAlignmentOptions.MidlineLeft;
+
+        return new DroneUIFX.AeroStatusPill { dot = stateImage, label = value };
+    }
+
+    void CreateBrand(Transform parent)
+    {
+        var go = new GameObject("Brand", typeof(RectTransform));
         go.transform.SetParent(parent, false);
-        var le = go.AddComponent<LayoutElement>();
-        le.preferredWidth = 200; le.preferredHeight = 40;
-        var bg = go.AddComponent<Image>();
-        bg.sprite = DroneUIFX.RoundedRectSprite; bg.type = Image.Type.Sliced;
-        bg.color = new Color(0.11f, 0.15f, 0.20f, 1f);
-        var border = new GameObject("Border", typeof(RectTransform), typeof(Image));
-        border.transform.SetParent(go.transform, false);
-        border.transform.SetAsFirstSibling();
-        border.GetComponent<Image>().sprite = DroneUIFX.RoundedRectSprite;
-        border.GetComponent<Image>().type = Image.Type.Sliced;
-        border.GetComponent<Image>().color = BORDER;
-        border.AddComponent<LayoutElement>().ignoreLayout = true;
-        Stretch((RectTransform)border.transform, 0f);
-        var inner = new GameObject("Inner", typeof(RectTransform), typeof(Image));
-        inner.transform.SetParent(go.transform, false);
-        inner.transform.SetSiblingIndex(1);
-        inner.GetComponent<Image>().sprite = DroneUIFX.RoundedRectSprite;
-        inner.GetComponent<Image>().type = Image.Type.Sliced;
-        inner.GetComponent<Image>().color = new Color(0.11f, 0.15f, 0.20f, 1f);
-        inner.AddComponent<LayoutElement>().ignoreLayout = true;
-        Stretch((RectTransform)inner.transform, 1f);
+        var layout = go.AddComponent<LayoutElement>();
+        layout.preferredWidth = 214;
+        layout.preferredHeight = 36;
+        var row = go.AddComponent<HorizontalLayoutGroup>();
+        row.spacing = 9;
+        row.childAlignment = TextAnchor.MiddleLeft;
+        row.childForceExpandWidth = false;
 
-        var vl = go.AddComponent<VerticalLayoutGroup>();
-        vl.padding = new RectOffset(8, 8, 4, 4);
-        vl.spacing = 1;
-        vl.childAlignment = TextAnchor.MiddleLeft;
+        var accent = new GameObject("Accent", typeof(RectTransform), typeof(Image));
+        accent.transform.SetParent(go.transform, false);
+        accent.GetComponent<Image>().color = ACCENT;
+        var accentLayout = accent.AddComponent<LayoutElement>();
+        accentLayout.preferredWidth = 2;
+        accentLayout.preferredHeight = 28;
 
-        var t1GO = new GameObject("L1"); t1GO.transform.SetParent(go.transform, false);
-        var t1 = t1GO.AddComponent<TextMeshProUGUI>();
-        t1.text = line1; t1.fontSize = 11; t1.fontStyle = FontStyles.Bold;
-        t1.characterSpacing = 14; t1.color = TXT; t1.alignment = TextAlignmentOptions.MidlineLeft;
-        var t2GO = new GameObject("L2"); t2GO.transform.SetParent(go.transform, false);
-        var t2 = t2GO.AddComponent<TextMeshProUGUI>();
-        t2.text = line2; t2.fontSize = 9; t2.color = TXT_DIM; t2.alignment = TextAlignmentOptions.MidlineLeft;
-        return go;
+        DroneUIFX.CreateIcon(go.transform, DroneUIFX.IconType.Drone, 18f, ACCENT);
+
+        var textCol = new GameObject("Text", typeof(RectTransform));
+        textCol.transform.SetParent(go.transform, false);
+        textCol.AddComponent<LayoutElement>().flexibleWidth = 1;
+        var col = textCol.AddComponent<VerticalLayoutGroup>();
+        col.spacing = -1;
+        col.childAlignment = TextAnchor.MiddleLeft;
+
+        var titleGO = new GameObject("Title", typeof(RectTransform));
+        titleGO.transform.SetParent(textCol.transform, false);
+        var title = titleGO.AddComponent<TextMeshProUGUI>();
+        title.text = "DRONE TWIN";
+        title.fontSize = 13;
+        title.fontStyle = FontStyles.Bold;
+        title.characterSpacing = 8;
+        title.color = TXT;
+        title.alignment = TextAlignmentOptions.MidlineLeft;
+
+        var subtitleGO = new GameObject("Subtitle", typeof(RectTransform));
+        subtitleGO.transform.SetParent(textCol.transform, false);
+        var subtitle = subtitleGO.AddComponent<TextMeshProUGUI>();
+        subtitle.text = "GCS 0.1  /  FLIGHT CONTROL SYSTEM";
+        subtitle.fontSize = 7;
+        subtitle.characterSpacing = 4;
+        subtitle.color = TXT_DIM;
+        subtitle.alignment = TextAlignmentOptions.MidlineLeft;
     }
 
     void TopBarSep(GameObject bar)
@@ -308,19 +425,19 @@ public class DroneDashboardUI : MonoBehaviour
     void BuildLeftPanel(GameObject outer)
     {
         var vlg = outer.AddComponent<VerticalLayoutGroup>();
-        vlg.spacing = 8;
+        vlg.spacing = 7;
         vlg.childForceExpandWidth = true;
-        vlg.childForceExpandHeight = false;
+        vlg.childForceExpandHeight = true;
         vlg.childControlWidth = true;
         vlg.childControlHeight = true;
 
-        var attitude = CreatePanelCard(outer, "AttitudeCard", 248f);
-        SectionHeader(attitude, "ATTITUDE");
+        var attitude = CreatePanelCard(outer, "AttitudeCard", 252f);
+        SectionHeader(attitude, "ATTITUDE", DroneUIFX.IconType.Attitude);
         var attitudeRow = new GameObject("AttitudeRow", typeof(RectTransform));
         attitudeRow.transform.SetParent(attitude.transform, false);
         attitudeRow.AddComponent<LayoutElement>().flexibleHeight = 1;
         var attitudeHL = attitudeRow.AddComponent<HorizontalLayoutGroup>();
-        attitudeHL.spacing = 10;
+        attitudeHL.spacing = 8;
         attitudeHL.childAlignment = TextAnchor.MiddleCenter;
         attitudeHL.childForceExpandWidth = false;
 
@@ -331,13 +448,13 @@ public class DroneDashboardUI : MonoBehaviour
         horizonLE.flexibleWidth = 1;
         var hsl = horizonSlot.AddComponent<HorizontalLayoutGroup>();
         hsl.childAlignment = TextAnchor.MiddleCenter;
-        var horizon = DroneUIFX.CreateArtificialHorizon(horizonSlot.transform, 176f);
+        var horizon = DroneUIFX.CreateArtificialHorizon(horizonSlot.transform, 172f);
         fx.widgets.Add(horizon);
         ui.horizon = horizon;
 
         var attitudeStats = new GameObject("AttitudeValues", typeof(RectTransform));
         attitudeStats.transform.SetParent(attitudeRow.transform, false);
-        attitudeStats.AddComponent<LayoutElement>().preferredWidth = 126;
+        attitudeStats.AddComponent<LayoutElement>().preferredWidth = 112;
         var attitudeVL = attitudeStats.AddComponent<VerticalLayoutGroup>();
         attitudeVL.spacing = 4;
         attitudeVL.childForceExpandHeight = true;
@@ -346,19 +463,19 @@ public class DroneDashboardUI : MonoBehaviour
         ui.rollText  = VerticalStat(attitudeStats, "ROLL", "--");
         ui.yawText   = VerticalStat(attitudeStats, "YAW", "--");
 
-        var position = CreatePanelCard(outer, "PositionCard", 140f);
-        SectionHeader(position, "POSITION  (LOCAL NED)");
-        ui.xText = SlimStatRow(position, "NORTH  (X)", "");
-        ui.yText = SlimStatRow(position, "EAST  (Y)", "");
-        ui.zText = SlimStatRow(position, "ALTITUDE  (Z)", "");
+        var position = CreatePanelCard(outer, "PositionCard", 124f);
+        SectionHeader(position, "POSITION  /  LOCAL NED", DroneUIFX.IconType.Position);
+        ui.xText = SlimStatRow(position, "NORTH  (X)", "m", rowH: 24, labelW: 108);
+        ui.yText = SlimStatRow(position, "EAST  (Y)", "m", rowH: 24, labelW: 108);
+        ui.zText = SlimStatRow(position, "ALTITUDE  (Z)", "m", rowH: 24, labelW: 108);
 
-        var movement = CreatePanelCard(outer, "MovementCard", 100f);
-        SectionHeader(movement, "MOVEMENT");
-        ui.speedText = SlimStatRow(movement, "GROUND SPEED", "m/s", rowH: 26, labelW: 150);
-        ui.verticalSpeedText = SlimStatRow(movement, "VERTICAL SPEED", "m/s", rowH: 26, labelW: 150);
+        var movement = CreatePanelCard(outer, "MovementCard", 86f);
+        SectionHeader(movement, "MOVEMENT", DroneUIFX.IconType.Speed);
+        ui.speedText = SlimStatRow(movement, "GROUND SPEED", "m/s", rowH: 23, labelW: 132);
+        ui.verticalSpeedText = SlimStatRow(movement, "VERTICAL SPEED", "m/s", rowH: 23, labelW: 132);
 
-        var controls = CreatePanelCard(outer, "ControlsCard", 196f);
-        SectionHeader(controls, "FLIGHT CONTROLS");
+        var controls = CreatePanelCard(outer, "ControlsCard", 176f);
+        SectionHeader(controls, "FLIGHT CONTROLS", DroneUIFX.IconType.Controls);
         var modeCaption = new GameObject("ModeCaption", typeof(RectTransform));
         modeCaption.transform.SetParent(controls.transform, false);
         modeCaption.AddComponent<LayoutElement>().preferredHeight = 14;
@@ -371,60 +488,72 @@ public class DroneDashboardUI : MonoBehaviour
         modeCaptionText.alignment = TextAlignmentOptions.MidlineLeft;
         var modeRow = new GameObject("ModeRow", typeof(RectTransform));
         modeRow.transform.SetParent(controls.transform, false);
-        modeRow.AddComponent<LayoutElement>().preferredHeight = 36;
+        modeRow.AddComponent<LayoutElement>().preferredHeight = 30;
         var mrhl = modeRow.AddComponent<HorizontalLayoutGroup>();
         mrhl.spacing = 6; mrhl.childForceExpandWidth = true;
-        MakeAeroButton(modeRow, "STABILIZE",  BTN_MODE_ACCENT, false, () => SendCmd("STABILIZE"),  10, 36);
-        MakeAeroButton(modeRow, "ALT HOLD",   BTN_MODE_ACCENT, false, () => SendCmd("ALT_HOLD"),   10, 36);
-        MakeAeroButton(modeRow, "POS HOLD",   BTN_MODE_ACCENT, false, () => SendCmd("POSHOLD"),    10, 36);
-        MakeAeroButton(controls, "LAND", BTN_LAND_ACCENT, false, () => SendCmd("LAND"), 12, 40);
+        ui.stabilizeButtonStyle = MakeAeroButton(modeRow, "STABILIZE", BTN_MODE_ACCENT, false, () => SendCmd("STABILIZE"), 9, 30);
+        ui.altHoldButtonStyle = MakeAeroButton(modeRow, "ALT HOLD", BTN_MODE_ACCENT, false, () => SendCmd("ALT_HOLD"), 9, 30);
+        ui.posHoldButtonStyle = MakeAeroButton(modeRow, "POS HOLD", BTN_MODE_ACCENT, false, () => SendCmd("POSHOLD"), 9, 30);
+        MakeAeroButton(controls, "LAND", BTN_LAND_ACCENT, false, () => SendCmd("LAND"), 10, 32);
         MakeAeroButton(controls, "FORCE DISARM", BTN_DISARM_ACCENT, true,
             () => ConfirmDialog("FORCE DISARM",
                 "This forcibly disarms motors in flight.\nConfirm to send FORCE_DISARM to the vehicle.",
-                "CONFIRM DISARM", () => SendCmd("FORCE_DISARM")), 11, 40);
+                "CONFIRM DISARM", () => SendCmd("FORCE_DISARM")), 10, 32, DroneUIFX.IconType.Lock);
 
-        var vibration = CreatePanelCard(outer, "VibrationCard", 118f, 1f);
-        SectionHeader(vibration, "VIBRATION  (m/s²)");
+        var vibration = CreatePanelCard(outer, "VibrationCard", 96f);
+        SectionHeader(vibration, "VIBRATION  (m/s²)", DroneUIFX.IconType.Telemetry);
         var vibRow = new GameObject("VibRow", typeof(RectTransform));
         vibRow.transform.SetParent(vibration.transform, false);
         vibRow.AddComponent<LayoutElement>().flexibleHeight = 1;
-        var vibVl = vibRow.AddComponent<VerticalLayoutGroup>();
-        vibVl.spacing = 4; vibVl.childForceExpandWidth = true;
+        var vibLayout = vibRow.AddComponent<HorizontalLayoutGroup>();
+        vibLayout.padding = new RectOffset(4, 2, 0, 0);
+        vibLayout.spacing = 10;
+        vibLayout.childAlignment = TextAnchor.MiddleLeft;
+        vibLayout.childForceExpandWidth = true;
+        vibLayout.childForceExpandHeight = false;
+        ui.vibXText = CompactInlineMetric(vibRow, "X");
+        ui.vibYText = CompactInlineMetric(vibRow, "Y");
+        ui.vibZText = CompactInlineMetric(vibRow, "Z");
 
-        var vibBarsHL = new GameObject("VibBarsHL", typeof(RectTransform));
-        vibBarsHL.transform.SetParent(vibRow.transform, false);
-        vibBarsHL.AddComponent<LayoutElement>().preferredHeight = 48;
-        var visHL = vibBarsHL.AddComponent<HorizontalLayoutGroup>();
-        visHL.spacing = 8; visHL.childForceExpandWidth = true;
-
-        var vibX = DroneUIFX.CreateGradientBar(vibBarsHL.transform, "X");
-        var vibY = DroneUIFX.CreateGradientBar(vibBarsHL.transform, "Y");
-        var vibZ = DroneUIFX.CreateGradientBar(vibBarsHL.transform, "Z");
-        vibX.maxAbsValue = vibY.maxAbsValue = vibZ.maxAbsValue = ui.vibGaugeMax;
-        fx.widgets.Add(vibX); fx.widgets.Add(vibY); fx.widgets.Add(vibZ);
-        ui.vibXBar = vibX; ui.vibYBar = vibY; ui.vibZBar = vibZ;
-        ui.vibXText = vibX.valueText; ui.vibYText = vibY.valueText; ui.vibZText = vibZ.valueText;
-
-        var vibStatusRow = SlimStatRow(vibRow, "STATUS", "", rowH: 22);
-        vibStatusRow.fontSize = 11;
-        ui.vibStatusText = vibStatusRow;
+        var statusGO = new GameObject("Status", typeof(RectTransform), typeof(Image));
+        statusGO.transform.SetParent(vibRow.transform, false);
+        var statusLayout = statusGO.AddComponent<LayoutElement>();
+        statusLayout.preferredWidth = 54;
+        statusLayout.preferredHeight = 30;
+        statusLayout.flexibleWidth = 0;
+        var statusImage = statusGO.GetComponent<Image>();
+        statusImage.sprite = DroneUIFX.RoundedRectSprite;
+        statusImage.type = Image.Type.Sliced;
+        statusImage.color = new Color(GREEN.r, GREEN.g, GREEN.b, 0.12f);
+        statusImage.raycastTarget = false;
+        var statusTextGO = new GameObject("Value", typeof(RectTransform));
+        statusTextGO.transform.SetParent(statusGO.transform, false);
+        var statusText = statusTextGO.AddComponent<TextMeshProUGUI>();
+        statusText.text = "OK";
+        statusText.fontSize = 11;
+        statusText.fontStyle = FontStyles.Bold;
+        statusText.color = GREEN;
+        statusText.alignment = TextAlignmentOptions.Center;
+        statusText.raycastTarget = false;
+        Stretch(statusText.rectTransform);
+        ui.vibStatusText = statusText;
     }
 
     // ─── Right panel ─────────────────────────────────────────────────────
     void BuildRightPanel(GameObject outer)
     {
         var vlg = outer.AddComponent<VerticalLayoutGroup>();
-        vlg.spacing = 8;
+        vlg.spacing = 7;
         vlg.childForceExpandWidth = true;
-        vlg.childForceExpandHeight = false;
+        vlg.childForceExpandHeight = true;
         vlg.childControlWidth = true;
         vlg.childControlHeight = true;
 
-        var power = CreatePanelCard(outer, "PowerCard", 178f);
-        SectionHeader(power, "POWER");
+        var power = CreatePanelCard(outer, "PowerCard", 158f);
+        SectionHeader(power, "POWER", DroneUIFX.IconType.Battery);
         var battHero = new GameObject("BattHero", typeof(RectTransform));
         battHero.transform.SetParent(power.transform, false);
-        battHero.AddComponent<LayoutElement>().preferredHeight = 70;
+        battHero.AddComponent<LayoutElement>().preferredHeight = 58;
         var battHeroHL = battHero.AddComponent<HorizontalLayoutGroup>();
         battHeroHL.padding = new RectOffset(2, 2, 0, 2);
         battHeroHL.spacing = 12; battHeroHL.childAlignment = TextAnchor.MiddleLeft;
@@ -432,7 +561,7 @@ public class DroneDashboardUI : MonoBehaviour
         // left: "BATTERY" label + big percent
         var pctCol = new GameObject("PctCol", typeof(RectTransform));
         pctCol.transform.SetParent(battHero.transform, false);
-        pctCol.AddComponent<LayoutElement>().preferredWidth = 138;
+        pctCol.AddComponent<LayoutElement>().preferredWidth = 122;
         var pctVl = pctCol.AddComponent<VerticalLayoutGroup>();
         pctVl.spacing = 0; pctVl.childForceExpandWidth = true;
         var pctLblGO = new GameObject("Lbl"); pctLblGO.transform.SetParent(pctCol.transform, false);
@@ -441,7 +570,7 @@ public class DroneDashboardUI : MonoBehaviour
         pctLbl.fontStyle = FontStyles.Bold; pctLbl.color = TXT_DIM; pctLbl.alignment = TextAlignmentOptions.MidlineLeft;
         var pctGO = new GameObject("Val"); pctGO.transform.SetParent(pctCol.transform, false);
         var pct = pctGO.AddComponent<TextMeshProUGUI>();
-        pct.text = "--"; pct.fontSize = 36; pct.fontStyle = FontStyles.Bold;
+        pct.text = "--"; pct.fontSize = 28; pct.fontStyle = FontStyles.Bold;
         pct.color = NUM; pct.alignment = TextAlignmentOptions.MidlineLeft;
         ui.batteryPercentText = pct;
 
@@ -459,23 +588,23 @@ public class DroneDashboardUI : MonoBehaviour
         ui.batteryBar = barGauge;
         var electrical = new GameObject("Electrical", typeof(RectTransform));
         electrical.transform.SetParent(power.transform, false);
-        electrical.AddComponent<LayoutElement>().preferredHeight = 42;
+        electrical.AddComponent<LayoutElement>().preferredHeight = 38;
         var electricalHL = electrical.AddComponent<HorizontalLayoutGroup>();
         electricalHL.spacing = 10;
         electricalHL.childForceExpandWidth = true;
         ui.voltageText = MiniStat(electrical, "VOLTAGE", "V");
         ui.currentText = MiniStat(electrical, "CURRENT", "A");
 
-        var navigation = CreatePanelCard(outer, "NavigationCard", 218f);
-        SectionHeader(navigation, "GPS  /  NAVIGATION");
+        var navigation = CreatePanelCard(outer, "NavigationCard", 190f);
+        SectionHeader(navigation, "GPS  /  NAVIGATION", DroneUIFX.IconType.Gps);
         var gpsTop = new GameObject("GpsTop", typeof(RectTransform));
         gpsTop.transform.SetParent(navigation.transform, false);
-        gpsTop.AddComponent<LayoutElement>().preferredHeight = 46;
+        gpsTop.AddComponent<LayoutElement>().preferredHeight = 40;
         var gpsHL = gpsTop.AddComponent<HorizontalLayoutGroup>();
         gpsHL.padding = new RectOffset(2, 2, 0, 0);
         gpsHL.spacing = 14; gpsHL.childAlignment = TextAnchor.MiddleCenter;
 
-        var signalBars = DroneUIFX.CreateSignalBars(gpsTop.transform, 5, 30f);
+        var signalBars = DroneUIFX.CreateSignalBars(gpsTop.transform, 5, 24f);
         fx.widgets.Add(signalBars);
         ui.gpsSignalBars = signalBars;
 
@@ -489,7 +618,7 @@ public class DroneDashboardUI : MonoBehaviour
         var satVal = new GameObject("SatVal", typeof(RectTransform));
         satVal.transform.SetParent(gpsTop.transform, false);
         var sv = satVal.AddComponent<TextMeshProUGUI>();
-        sv.text = "--"; sv.fontSize = 22; sv.fontStyle = FontStyles.Bold;
+        sv.text = "--"; sv.fontSize = 19; sv.fontStyle = FontStyles.Bold;
         sv.color = NUM; sv.alignment = TextAlignmentOptions.MidlineLeft;
         ui.gpsSatText = sv; // right-panel sat count (top bar has its own satTopText field)
         satVal.AddComponent<LayoutElement>().preferredWidth = 40;
@@ -498,46 +627,41 @@ public class DroneDashboardUI : MonoBehaviour
         spacer.transform.SetParent(gpsTop.transform, false);
         spacer.AddComponent<LayoutElement>().flexibleWidth = 1;
 
-        ui.latText = SlimStatRow(navigation, "LATITUDE", "", rowH: 28, labelW: 92);
-        ui.lonText = SlimStatRow(navigation, "LONGITUDE", "", rowH: 28, labelW: 92);
-        ui.gpsAltText = SlimStatRow(navigation, "GPS ALTITUDE", "m", rowH: 28, labelW: 108);
+        ui.latText = SlimStatRow(navigation, "LATITUDE", "°", rowH: 24, labelW: 94);
+        ui.lonText = SlimStatRow(navigation, "LONGITUDE", "°", rowH: 24, labelW: 94);
+        ui.gpsAltText = SlimStatRow(navigation, "GPS ALTITUDE", "m", rowH: 24, labelW: 106);
 
-        var link = CreatePanelCard(outer, "LinkCard", 270f);
-        SectionHeader(link, "LINK  /  TELEMETRY");
+        var link = CreatePanelCard(outer, "LinkCard", 242f);
+        SectionHeader(link, "LINK  /  TELEMETRY", DroneUIFX.IconType.Telemetry);
         var linkHero = new GameObject("LinkHero", typeof(RectTransform));
         linkHero.transform.SetParent(link.transform, false);
-        linkHero.AddComponent<LayoutElement>().preferredHeight = 62;
+        linkHero.AddComponent<LayoutElement>().preferredHeight = 48;
         var linkHeroHL = linkHero.AddComponent<HorizontalLayoutGroup>();
         linkHeroHL.spacing = 16;
         linkHeroHL.childAlignment = TextAnchor.MiddleCenter;
 
-        var latencyVisual = DroneUIFX.CreateSignalBars(linkHero.transform, 7, 32f);
+        var latencyVisual = DroneUIFX.CreateSignalBars(linkHero.transform, 7, 26f);
         latencyVisual.activeColor = ACCENT;
         fx.widgets.Add(latencyVisual);
         ui.linkSignalBars = latencyVisual;
 
-        var latRow = SlimStatRow(linkHero, "LATENCY", "ms", prominent: true, rowH: 56, labelW: 82);
+        var latRow = SlimStatRow(linkHero, "LATENCY", "ms", prominent: true, rowH: 44, labelW: 76);
         ui.latMeanText = latRow; // reuse as primary mean latency display
         latRow.fontSize = 20;
 
-        var minMax = new GameObject("MinMax", typeof(RectTransform));
-        minMax.transform.SetParent(link.transform, false);
-        minMax.AddComponent<LayoutElement>().preferredHeight = 44;
-        var mmHL = minMax.AddComponent<HorizontalLayoutGroup>();
-        mmHL.spacing = 6; mmHL.childForceExpandWidth = true;
-        ui.latMinText = MiniStat(minMax, "MIN", "ms");
-        ui.latMaxText = MiniStat(minMax, "MAX", "ms");
-
-        ui.latVarText = SlimStatRow(link, "JITTER  (σ)", "ms", rowH: 28, labelW: 112);
-        var rateRow = SlimStatRow(link, "PACKET RATE", "pkts/s", rowH: 28, labelW: 112);
+        var rateRow = SlimStatRow(link, "PACKET RATE", "Hz", rowH: 23, labelW: 118);
         ui.packetRateText = rateRow;
+        ui.latVarText = SlimStatRow(link, "JITTER  (σ)", "ms", rowH: 23, labelW: 118);
+        ui.latMinText = SlimStatRow(link, "MIN LATENCY", "ms", rowH: 23, labelW: 118);
+        ui.latMaxText = SlimStatRow(link, "MAX LATENCY", "ms", rowH: 23, labelW: 118);
+        ui.packetLossText = SlimStatRow(link, "PACKET LOSS", "%", rowH: 23, labelW: 118);
 
-        var status = CreatePanelCard(outer, "SystemStatusCard", 164f, 1f);
-        SectionHeader(status, "SYSTEM STATUS");
+        var status = CreatePanelCard(outer, "SystemStatusCard", 154f);
+        SectionHeader(status, "SYSTEM STATUS", DroneUIFX.IconType.System);
         ui.telemetryStatusText = StatusRow(status, "TELEMETRY");
         ui.gpsStatusText = StatusRow(status, "GPS");
         ui.imuStatusText = StatusRow(status, "IMU");
-        ui.powerStatusText = StatusRow(status, "POWER BUS");
+        ui.barometerStatusText = StatusRow(status, "BAROMETER");
     }
 
     // ─── Center ──────────────────────────────────────────────────────────
@@ -547,11 +671,14 @@ public class DroneDashboardUI : MonoBehaviour
         if (mask == null) mask = center.AddComponent<Mask>();
         mask.showMaskGraphic = true;
 
+        droneViewLayer = new GameObject("DroneViewLayer", typeof(RectTransform));
+        droneViewLayer.transform.SetParent(center.transform, false);
+        Stretch((RectTransform)droneViewLayer.transform, 1f);
+
         if (droneViewTexture == null)
         {
-            center.GetComponent<Image>().color = new Color(0.06f, 0.07f, 0.10f);
             var lbl = new GameObject("NoTexLabel");
-            lbl.transform.SetParent(center.transform, false);
+            lbl.transform.SetParent(droneViewLayer.transform, false);
             var t = lbl.AddComponent<TextMeshProUGUI>();
             t.text = "Assign Drone View Texture in Inspector — or camera view will appear here when playing SampleScene.";
             t.fontSize = 15; t.color = TXT_DIM; t.alignment = TextAlignmentOptions.Center;
@@ -561,39 +688,225 @@ public class DroneDashboardUI : MonoBehaviour
             return;
         }
         var go = new GameObject("DroneView");
-        go.transform.SetParent(center.transform, false);
+        go.transform.SetParent(droneViewLayer.transform, false);
         var img = go.AddComponent<RawImage>();
         img.texture = droneViewTexture;
+        img.raycastTarget = true;
+        var cover = go.AddComponent<DroneViewportCover>();
+        cover.image = img;
         var rt2 = img.rectTransform;
         rt2.anchorMin = Vector2.zero; rt2.anchorMax = Vector2.one;
-        rt2.offsetMin = new Vector2(2,2); rt2.offsetMax = new Vector2(-2,-2);
+        rt2.offsetMin = new Vector2(1, 1); rt2.offsetMax = new Vector2(-1, -1);
+
+        Camera[] cameras = FindObjectsByType<Camera>(FindObjectsSortMode.None);
+        for (int i = 0; i < cameras.Length; i++)
+        {
+            if (cameras[i].targetTexture != droneViewTexture) continue;
+            viewportCamera = cameras[i].GetComponent<DroneViewportCameraController>();
+            if (viewportCamera == null) viewportCamera = cameras[i].gameObject.AddComponent<DroneViewportCameraController>();
+            var controller = FindFirstObjectByType<DroneController>();
+            if (controller != null) viewportCamera.Initialize(controller.transform);
+            var input = go.AddComponent<DroneViewportInput>();
+            input.controller = viewportCamera;
+            break;
+        }
+    }
+
+    void BuildMapView(GameObject center)
+    {
+        mapViewLayer = new GameObject("MapViewLayer", typeof(RectTransform), typeof(Image));
+        mapViewLayer.transform.SetParent(center.transform, false);
+        var background = mapViewLayer.GetComponent<Image>();
+        background.color = new Color(0.025f, 0.073f, 0.096f, 1f);
+        background.raycastTarget = false;
+        Stretch((RectTransform)mapViewLayer.transform, 1f);
+
+        var plot = new GameObject("MapPlot", typeof(RectTransform), typeof(Image), typeof(RectMask2D));
+        plot.transform.SetParent(mapViewLayer.transform, false);
+        var plotImage = plot.GetComponent<Image>();
+        plotImage.color = new Color(0f, 0f, 0f, 0f);
+        plotImage.raycastTarget = true;
+        var plotRT = (RectTransform)plot.transform;
+        plotRT.anchorMin = Vector2.zero;
+        plotRT.anchorMax = Vector2.one;
+        plotRT.offsetMin = new Vector2(18, 46);
+        plotRT.offsetMax = new Vector2(-18, -18);
+
+        var tileRoot = new GameObject("OpenStreetMapTiles", typeof(RectTransform));
+        tileRoot.transform.SetParent(plot.transform, false);
+        Stretch((RectTransform)tileRoot.transform);
+
+        var mapOverlay = new GameObject("FlightOverlay", typeof(RectTransform));
+        mapOverlay.transform.SetParent(plot.transform, false);
+        Stretch((RectTransform)mapOverlay.transform);
+        mapView = mapOverlay.AddComponent<DroneMapView>();
+
+        mapTileLayer = plot.AddComponent<OpenStreetMapTileLayer>();
+        mapTileLayer.zoom = mapZoom;
+        mapTileLayer.tileUrlTemplate = mapTileUrlTemplate;
+        mapTileLayer.userAgent = mapTileUserAgent;
+        mapTileLayer.tileRoot = (RectTransform)tileRoot.transform;
+        mapTileLayer.overlay = mapView;
+        mapView.tileLayer = mapTileLayer;
+
+        CreateMapCardinal(mapViewLayer.transform, "N", new Vector2(0.5f, 1f), new Vector2(0, -92));
+        CreateMapCardinal(mapViewLayer.transform, "E", new Vector2(1f, 0.5f), new Vector2(-29, 0));
+        CreateMapCardinal(mapViewLayer.transform, "S", new Vector2(0.5f, 0f), new Vector2(0, 50));
+        CreateMapCardinal(mapViewLayer.transform, "W", new Vector2(0f, 0.5f), new Vector2(29, 0));
+
+        var mapTitleGO = new GameObject("MapTitle", typeof(RectTransform));
+        mapTitleGO.transform.SetParent(mapViewLayer.transform, false);
+        var mapTitle = mapTitleGO.AddComponent<TextMeshProUGUI>();
+        mapTitle.text = "OPENSTREETMAP  /  WAITING FOR GPS";
+        mapTitle.fontSize = 9;
+        mapTitle.fontStyle = FontStyles.Bold;
+        mapTitle.characterSpacing = 10;
+        mapTitle.color = TXT_SEC;
+        mapTitle.alignment = TextAlignmentOptions.MidlineLeft;
+        var mapTitleRT = mapTitle.rectTransform;
+        mapTitleRT.anchorMin = mapTitleRT.anchorMax = new Vector2(0, 1);
+        mapTitleRT.pivot = new Vector2(0, 1);
+        mapTitleRT.anchoredPosition = new Vector2(18, -50);
+        mapTitleRT.sizeDelta = new Vector2(360, 20);
+        mapTileLayer.statusText = mapTitle;
+
+        var scaleGO = new GameObject("Scale", typeof(RectTransform));
+        scaleGO.transform.SetParent(mapViewLayer.transform, false);
+        var scale = scaleGO.AddComponent<TextMeshProUGUI>();
+        scale.text = "GRID  2.5 m";
+        scale.fontSize = 9;
+        scale.fontStyle = FontStyles.Bold;
+        scale.color = ACCENT;
+        scale.alignment = TextAlignmentOptions.MidlineRight;
+        var scaleRT = scale.rectTransform;
+        scaleRT.anchorMin = scaleRT.anchorMax = new Vector2(1, 1);
+        scaleRT.pivot = new Vector2(1, 1);
+        scaleRT.anchoredPosition = new Vector2(-18, -50);
+        scaleRT.sizeDelta = new Vector2(130, 20);
+        mapView.scaleText = scale;
+
+        var readout = new GameObject("MapReadout", typeof(RectTransform), typeof(Image));
+        readout.transform.SetParent(mapViewLayer.transform, false);
+        var readoutImage = readout.GetComponent<Image>();
+        readoutImage.sprite = DroneUIFX.RoundedRectSprite;
+        readoutImage.type = Image.Type.Sliced;
+        readoutImage.color = new Color(BG.r, BG.g, BG.b, 0.86f);
+        readoutImage.raycastTarget = false;
+        var readoutRT = (RectTransform)readout.transform;
+        readoutRT.anchorMin = new Vector2(0, 0);
+        readoutRT.anchorMax = new Vector2(1, 0);
+        readoutRT.pivot = new Vector2(0.5f, 0);
+        readoutRT.anchoredPosition = new Vector2(0, 10);
+        readoutRT.sizeDelta = new Vector2(-20, 30);
+        var readoutLayout = readout.AddComponent<HorizontalLayoutGroup>();
+        readoutLayout.padding = new RectOffset(10, 10, 0, 0);
+        readoutLayout.spacing = 12;
+        readoutLayout.childAlignment = TextAnchor.MiddleLeft;
+        readoutLayout.childForceExpandWidth = true;
+
+        mapView.gpsText = CreateMapReadoutText(readout.transform, "LAT  --    LON  --", TextAlignmentOptions.MidlineLeft);
+        mapView.localText = CreateMapReadoutText(readout.transform, "N  -- m    E  -- m", TextAlignmentOptions.MidlineRight);
+        CreateMapAttribution(mapViewLayer.transform);
+        mapViewLayer.SetActive(false);
+        ui.mapView = mapView;
+    }
+
+    void CreateMapAttribution(Transform parent)
+    {
+        var go = new GameObject("OpenStreetMapAttribution", typeof(RectTransform), typeof(Image), typeof(Button));
+        go.transform.SetParent(parent, false);
+        var image = go.GetComponent<Image>();
+        image.sprite = DroneUIFX.RoundedRectSprite;
+        image.type = Image.Type.Sliced;
+        image.color = new Color(BG.r, BG.g, BG.b, 0.86f);
+        var button = go.GetComponent<Button>();
+        button.targetGraphic = image;
+        button.onClick.AddListener(() => Application.OpenURL("https://www.openstreetmap.org/copyright"));
+        var rt = (RectTransform)go.transform;
+        rt.anchorMin = rt.anchorMax = new Vector2(1, 0);
+        rt.pivot = new Vector2(1, 0);
+        rt.anchoredPosition = new Vector2(-18, 46);
+        rt.sizeDelta = new Vector2(220, 22);
+
+        var textGO = new GameObject("Text", typeof(RectTransform));
+        textGO.transform.SetParent(go.transform, false);
+        var text = textGO.AddComponent<TextMeshProUGUI>();
+        text.text = "© OpenStreetMap contributors";
+        text.fontSize = 10;
+        text.color = TXT;
+        text.alignment = TextAlignmentOptions.Center;
+        text.raycastTarget = false;
+        Stretch(text.rectTransform);
+    }
+
+    TextMeshProUGUI CreateMapReadoutText(Transform parent, string initial, TextAlignmentOptions alignment)
+    {
+        var go = new GameObject("Value", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var text = go.AddComponent<TextMeshProUGUI>();
+        text.text = initial;
+        text.fontSize = 10;
+        text.fontStyle = FontStyles.Bold;
+        text.color = TXT;
+        text.alignment = alignment;
+        return text;
+    }
+
+    void CreateMapCardinal(Transform parent, string value, Vector2 anchor, Vector2 position)
+    {
+        var go = new GameObject("Cardinal" + value, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var text = go.AddComponent<TextMeshProUGUI>();
+        text.text = value;
+        text.fontSize = 11;
+        text.fontStyle = FontStyles.Bold;
+        text.color = ACCENT;
+        text.alignment = TextAlignmentOptions.Center;
+        var rt = text.rectTransform;
+        rt.anchorMin = rt.anchorMax = anchor;
+        rt.pivot = anchor;
+        rt.anchoredPosition = position;
+        rt.sizeDelta = new Vector2(22, 18);
     }
 
     void BuildCenterHud(GameObject center)
     {
-        var viewTabs = FixedOverlayRow(center.transform, "ViewTabs", new Vector2(12, -12),
-            new Vector2(288, 36), new Vector2(0, 1));
-        OverlayChip(viewTabs, "3D VIEW", 140f, true);
-        OverlayChip(viewTabs, "MAP VIEW", 140f, false);
+        var viewTabs = FixedOverlayRow(center.transform, "ViewTabs", new Vector2(10, -10),
+            new Vector2(208, 32), new Vector2(0, 1));
+        viewModeStyles.Clear();
+        viewModeStyles.Add(OverlayChip(viewTabs, "3D VIEW", 98f, true, () => SetMapView(false), true));
+        viewModeStyles.Add(OverlayChip(viewTabs, "MAP VIEW", 98f, false, () => SetMapView(true), true));
 
-        var cameraModes = FixedOverlayRow(center.transform, "CameraModes", new Vector2(-12, -12),
-            new Vector2(382, 36), new Vector2(1, 1));
-        OverlayChip(cameraModes, "CAM", 52f, false);
-        OverlayChip(cameraModes, "FOLLOW", 78f, true);
-        OverlayChip(cameraModes, "ORBIT", 70f, false);
-        OverlayChip(cameraModes, "TOP", 58f, false);
-        OverlayChip(cameraModes, "FREE", 66f, false);
+        var cameraModes = FixedOverlayRow(center.transform, "CameraModes", new Vector2(-10, -10),
+            new Vector2(282, 32), new Vector2(1, 1));
+        cameraModesOverlay = cameraModes;
+        OverlayIconButton(cameraModes, DroneUIFX.IconType.Camera, () => SetMapView(false), false, true);
+        cameraModeStyles.Clear();
+        cameraModeStyles.Add(OverlayChip(cameraModes, "FOLLOW", 67f, true,
+            () => SetViewportMode(DroneViewportCameraController.ViewMode.Follow, 0), true));
+        cameraModeStyles.Add(OverlayChip(cameraModes, "ORBIT", 60f, false,
+            () => SetViewportMode(DroneViewportCameraController.ViewMode.Orbit, 1), true));
+        cameraModeStyles.Add(OverlayChip(cameraModes, "TOP", 48f, false,
+            () => SetViewportMode(DroneViewportCameraController.ViewMode.Top, 2), true));
+        cameraModeStyles.Add(OverlayChip(cameraModes, "FREE", 52f, false,
+            () => SetViewportMode(DroneViewportCameraController.ViewMode.Free, 3), true));
+
+        mapControlsOverlay = FixedOverlayRow(center.transform, "MapControls", new Vector2(-10, -10),
+            new Vector2(92, 32), new Vector2(1, 1));
+        OverlayChip(mapControlsOverlay, "-", 44f, false, () => mapTileLayer?.ZoomBy(-1), true);
+        OverlayChip(mapControlsOverlay, "+", 44f, false, () => mapTileLayer?.ZoomBy(1), true);
+        mapControlsOverlay.SetActive(false);
 
         var compassSlot = new GameObject("ViewportCompass", typeof(RectTransform));
         compassSlot.transform.SetParent(center.transform, false);
         var compassRT = (RectTransform)compassSlot.transform;
         compassRT.anchorMin = compassRT.anchorMax = new Vector2(0.5f, 1f);
         compassRT.pivot = new Vector2(0.5f, 1f);
-        compassRT.anchoredPosition = new Vector2(0, -52);
-        compassRT.sizeDelta = new Vector2(500, 52);
+        compassRT.anchoredPosition = new Vector2(0, -43);
+        compassRT.sizeDelta = new Vector2(430, 40);
         var compassLayout = compassSlot.AddComponent<HorizontalLayoutGroup>();
         compassLayout.childAlignment = TextAnchor.UpperCenter;
-        var ribbon = DroneUIFX.CreateCompassRibbon(compassSlot.transform, 480f, 38f);
+        var ribbon = DroneUIFX.CreateCompassRibbon(compassSlot.transform, 420f, 30f);
         fx.widgets.Add(ribbon);
         ui.compassRibbon = ribbon;
 
@@ -601,7 +914,7 @@ public class DroneDashboardUI : MonoBehaviour
         headingGO.transform.SetParent(center.transform, false);
         var heading = headingGO.AddComponent<TextMeshProUGUI>();
         heading.text = "---°";
-        heading.fontSize = 14;
+        heading.fontSize = 13;
         heading.fontStyle = FontStyles.Bold;
         heading.characterSpacing = 8;
         heading.color = TXT;
@@ -610,37 +923,99 @@ public class DroneDashboardUI : MonoBehaviour
         var headingRT = heading.rectTransform;
         headingRT.anchorMin = headingRT.anchorMax = new Vector2(0.5f, 1f);
         headingRT.pivot = new Vector2(0.5f, 1f);
-        headingRT.anchoredPosition = new Vector2(0, -84);
+        headingRT.anchoredPosition = new Vector2(0, -73);
         headingRT.sizeDelta = new Vector2(110, 24);
         ui.centerHeadingText = heading;
 
         var tools = new GameObject("ViewportTools", typeof(RectTransform), typeof(Image));
         tools.transform.SetParent(center.transform, false);
         var toolsImage = tools.GetComponent<Image>();
-        toolsImage.sprite = DroneUIFX.RoundedRectSprite;
-        toolsImage.type = Image.Type.Sliced;
-        toolsImage.color = new Color(0.04f, 0.08f, 0.11f, 0.82f);
+        toolsImage.color = new Color(0, 0, 0, 0);
+        toolsImage.raycastTarget = false;
         var toolsRT = (RectTransform)tools.transform;
         toolsRT.anchorMin = toolsRT.anchorMax = new Vector2(1f, 0.5f);
         toolsRT.pivot = new Vector2(1f, 0.5f);
-        toolsRT.anchoredPosition = new Vector2(-12, 0);
-        toolsRT.sizeDelta = new Vector2(48, 184);
+        toolsRT.anchoredPosition = new Vector2(-10, 0);
+        toolsRT.sizeDelta = new Vector2(38, 164);
         var toolsVL = tools.AddComponent<VerticalLayoutGroup>();
-        toolsVL.padding = new RectOffset(5, 5, 7, 7);
+        toolsVL.padding = new RectOffset(2, 2, 2, 2);
         toolsVL.spacing = 5;
-        toolsVL.childForceExpandHeight = true;
+        toolsVL.childForceExpandHeight = false;
         toolsVL.childForceExpandWidth = true;
-        OverlayTool(tools, "TGT");
-        OverlayTool(tools, "LYR");
-        OverlayTool(tools, "SUN");
-        OverlayTool(tools, "FULL");
+        OverlayIconButton(tools, DroneUIFX.IconType.Target, () =>
+        {
+            if (mapViewLayer != null && mapViewLayer.activeSelf)
+                mapView?.Recenter();
+            else
+            {
+                viewportCamera?.ResetView();
+                SetViewportMode(DroneViewportCameraController.ViewMode.Follow, 0);
+            }
+        }, false, true);
+        layersStyle = OverlayIconButton(tools, DroneUIFX.IconType.Layers, ToggleLayers, false, true);
+        layersStyle.SetSelected(true);
+        lightingStyle = OverlayIconButton(tools, DroneUIFX.IconType.Lighting, ToggleLighting, true, true);
+        lightingStyle.SetSelected(true);
+        fullscreenStyle = OverlayIconButton(tools, DroneUIFX.IconType.Fullscreen, ToggleViewportFullscreen, false, true);
 
-        var lowerHud = FixedOverlayRow(center.transform, "FlightGlance", new Vector2(12, 12),
-            new Vector2(522, 36), new Vector2(0, 0));
-        ui.hudAltText = OverlayValueChip(lowerHud, "ALT", "-- m", 112f);
-        ui.hudSpeedText = OverlayValueChip(lowerHud, "SPD", "-- m/s", 128f);
-        ui.hudModeText = OverlayValueChip(lowerHud, "MODE", "UNKNOWN", 146f);
-        ui.hudArmedText = OverlayValueChip(lowerHud, "ARM", "DISARMED", 112f);
+        BuildViewportGpsReadout(center);
+
+        BuildSettingsPanel(center);
+        SetMapView(false);
+    }
+
+    void BuildViewportGpsReadout(GameObject center)
+    {
+        var panel = new GameObject("ViewportGpsReadout", typeof(RectTransform), typeof(Image));
+        panel.transform.SetParent(center.transform, false);
+        panel.GetComponent<Image>().color = new Color(BG.r, BG.g, BG.b, 0.84f);
+        StylePanel(panel);
+        var rt = (RectTransform)panel.transform;
+        rt.anchorMin = rt.anchorMax = Vector2.zero;
+        rt.pivot = Vector2.zero;
+        rt.anchoredPosition = new Vector2(10, 10);
+        rt.sizeDelta = new Vector2(220, 82);
+
+        var layout = panel.AddComponent<VerticalLayoutGroup>();
+        layout.padding = new RectOffset(10, 10, 7, 7);
+        layout.spacing = 2;
+        layout.childForceExpandWidth = true;
+        layout.childForceExpandHeight = true;
+        ui.hudLatText = ViewportGpsRow(panel, "LAT", "--");
+        ui.hudLonText = ViewportGpsRow(panel, "LON", "--");
+        ui.hudGpsAltText = ViewportGpsRow(panel, "ALT (GPS)", "-- m");
+    }
+
+    TextMeshProUGUI ViewportGpsRow(GameObject parent, string label, string initial)
+    {
+        var row = new GameObject(label, typeof(RectTransform));
+        row.transform.SetParent(parent.transform, false);
+        var layout = row.AddComponent<HorizontalLayoutGroup>();
+        layout.spacing = 8;
+        layout.childAlignment = TextAnchor.MiddleLeft;
+        layout.childForceExpandWidth = false;
+
+        var labelGO = new GameObject("Label", typeof(RectTransform));
+        labelGO.transform.SetParent(row.transform, false);
+        labelGO.AddComponent<LayoutElement>().preferredWidth = 76;
+        var labelText = labelGO.AddComponent<TextMeshProUGUI>();
+        labelText.text = label;
+        labelText.fontSize = 9;
+        labelText.fontStyle = FontStyles.Bold;
+        labelText.characterSpacing = 6;
+        labelText.color = TXT_SEC;
+        labelText.alignment = TextAlignmentOptions.MidlineLeft;
+
+        var valueGO = new GameObject("Value", typeof(RectTransform));
+        valueGO.transform.SetParent(row.transform, false);
+        valueGO.AddComponent<LayoutElement>().flexibleWidth = 1;
+        var value = valueGO.AddComponent<TextMeshProUGUI>();
+        value.text = initial;
+        value.fontSize = 12;
+        value.fontStyle = FontStyles.Bold;
+        value.color = TXT;
+        value.alignment = TextAlignmentOptions.MidlineRight;
+        return value;
     }
 
     GameObject FixedOverlayRow(Transform parent, string name, Vector2 position, Vector2 size, Vector2 anchor)
@@ -648,9 +1023,7 @@ public class DroneDashboardUI : MonoBehaviour
         var go = new GameObject(name, typeof(RectTransform), typeof(Image));
         go.transform.SetParent(parent, false);
         var image = go.GetComponent<Image>();
-        image.sprite = DroneUIFX.RoundedRectSprite;
-        image.type = Image.Type.Sliced;
-        image.color = new Color(0.04f, 0.08f, 0.11f, 0.86f);
+        image.color = new Color(0, 0, 0, 0);
         image.raycastTarget = false;
         var rt = (RectTransform)go.transform;
         rt.anchorMin = rt.anchorMax = anchor;
@@ -658,64 +1031,74 @@ public class DroneDashboardUI : MonoBehaviour
         rt.anchoredPosition = position;
         rt.sizeDelta = size;
         var hl = go.AddComponent<HorizontalLayoutGroup>();
-        hl.padding = new RectOffset(4, 4, 4, 4);
+        hl.padding = new RectOffset(0, 0, 0, 0);
         hl.spacing = 4;
         hl.childAlignment = TextAnchor.MiddleLeft;
         hl.childForceExpandWidth = false;
         return go;
     }
 
-    void OverlayChip(GameObject parent, string label, float width, bool selected)
+    DroneUIFX.AeroButtonHoverFX OverlayChip(GameObject parent, string label, float width, bool selected,
+        UnityEngine.Events.UnityAction callback, bool interactable)
     {
-        var go = new GameObject(label, typeof(RectTransform), typeof(Image));
+        var go = new GameObject(label, typeof(RectTransform), typeof(Image), typeof(Button));
         go.transform.SetParent(parent.transform, false);
         var le = go.AddComponent<LayoutElement>();
         le.preferredWidth = width;
-        le.preferredHeight = 28;
+        le.preferredHeight = 30;
         var image = go.GetComponent<Image>();
         image.sprite = DroneUIFX.RoundedRectSprite;
         image.type = Image.Type.Sliced;
-        image.color = selected ? new Color(0.08f, 0.28f, 0.36f, 0.96f) : new Color(0, 0, 0, 0);
-        image.raycastTarget = false;
+        image.color = CARD;
+        var button = go.GetComponent<Button>();
+        button.targetGraphic = image;
+        button.interactable = interactable;
+        if (callback != null) button.onClick.AddListener(callback);
         var textGO = new GameObject("Text", typeof(RectTransform));
         textGO.transform.SetParent(go.transform, false);
         var text = textGO.AddComponent<TextMeshProUGUI>();
         text.text = label;
-        text.fontSize = 10;
+        text.fontSize = 9;
         text.fontStyle = FontStyles.Bold;
         text.characterSpacing = 6;
-        text.color = selected ? new Color(0.45f, 0.92f, 1f, 1f) : TXT_SEC;
+        text.color = selected ? ACCENT : interactable ? TXT_SEC : TXT_DIM;
         text.alignment = TextAlignmentOptions.Center;
         text.raycastTarget = false;
         Stretch(text.rectTransform);
-        if (selected)
-        {
-            var outline = go.AddComponent<Outline>();
-            outline.effectColor = new Color(0.20f, 0.80f, 0.92f, 0.75f);
-            outline.effectDistance = new Vector2(1f, -1f);
-        }
+        var style = DroneUIFX.ApplyAeroButtonStyle(go, ACCENT);
+        style.SetSelected(selected);
+        textGO.transform.SetAsLastSibling();
+        return style;
     }
 
-    void OverlayTool(GameObject parent, string label)
+    DroneUIFX.AeroButtonHoverFX OverlayIconButton(GameObject parent, DroneUIFX.IconType icon, UnityEngine.Events.UnityAction callback,
+        bool warning, bool interactable)
     {
-        var go = new GameObject(label, typeof(RectTransform), typeof(Image));
+        var go = new GameObject(icon.ToString(), typeof(RectTransform), typeof(Image), typeof(Button));
         go.transform.SetParent(parent.transform, false);
+        var layout = go.AddComponent<LayoutElement>();
+        layout.preferredWidth = 34;
+        layout.preferredHeight = 34;
         var image = go.GetComponent<Image>();
         image.sprite = DroneUIFX.RoundedRectSprite;
         image.type = Image.Type.Sliced;
-        image.color = new Color(0.08f, 0.14f, 0.18f, 0.92f);
-        image.raycastTarget = false;
-        var textGO = new GameObject("Text", typeof(RectTransform));
-        textGO.transform.SetParent(go.transform, false);
-        var text = textGO.AddComponent<TextMeshProUGUI>();
-        text.text = label;
-        text.fontSize = 8;
-        text.fontStyle = FontStyles.Bold;
-        text.characterSpacing = 4;
-        text.color = label == "SUN" ? AMBER : TXT;
-        text.alignment = TextAlignmentOptions.Center;
-        text.raycastTarget = false;
-        Stretch(text.rectTransform);
+        image.color = CARD;
+        var button = go.GetComponent<Button>();
+        button.targetGraphic = image;
+        button.interactable = interactable;
+        if (callback != null) button.onClick.AddListener(callback);
+        var style = DroneUIFX.ApplyAeroButtonStyle(go, warning ? AMBER : ACCENT);
+        var iconImage = DroneUIFX.CreateIcon(go.transform, icon, 17f,
+            interactable ? warning ? AMBER : TXT : TXT_DIM);
+        var iconRT = iconImage.rectTransform;
+        iconRT.anchorMin = iconRT.anchorMax = new Vector2(0.5f, 0.5f);
+        iconRT.anchoredPosition = Vector2.zero;
+        iconRT.sizeDelta = new Vector2(17, 17);
+        iconImage.transform.SetAsLastSibling();
+        style.foreground = iconImage;
+        style.normalForegroundColor = interactable ? warning ? AMBER : TXT : TXT_DIM;
+        style.SetSelected(false);
+        return style;
     }
 
     TextMeshProUGUI OverlayValueChip(GameObject parent, string label, string initial, float width)
@@ -754,6 +1137,156 @@ public class DroneDashboardUI : MonoBehaviour
         return value;
     }
 
+    void SetViewportMode(DroneViewportCameraController.ViewMode mode, int selectedIndex)
+    {
+        viewportCamera?.SetMode(mode);
+        for (int i = 0; i < cameraModeStyles.Count; i++)
+            cameraModeStyles[i]?.SetSelected(i == selectedIndex);
+        Debug.Log("[DashboardUI] Camera: " + mode);
+    }
+
+    void SetMapView(bool showMap)
+    {
+        if (droneViewLayer != null) droneViewLayer.SetActive(!showMap);
+        if (mapViewLayer != null) mapViewLayer.SetActive(showMap);
+        if (showMap && mapView != null)
+        {
+            DroneData latest = rx != null ? rx.latestData : null;
+            if (latest != null && latest.timestamp > 0.0)
+                mapView.SetTelemetry(latest.x, latest.y, latest.lat, latest.lon, latest.yaw);
+            mapView.Refresh();
+        }
+        if (cameraModesOverlay != null) cameraModesOverlay.SetActive(!showMap);
+        if (mapControlsOverlay != null) mapControlsOverlay.SetActive(showMap);
+        if (viewModeStyles.Count >= 2)
+        {
+            viewModeStyles[0]?.SetSelected(!showMap);
+            viewModeStyles[1]?.SetSelected(showMap);
+        }
+        topCameraStyle?.SetSelected(!showMap);
+        topMapStyle?.SetSelected(showMap);
+        Debug.Log("[DashboardUI] View: " + (showMap ? "MAP" : "3D"));
+    }
+
+    void ToggleLayers()
+    {
+        pathVisible = !pathVisible;
+        mapView?.SetPathVisible(pathVisible);
+        DroneTrail[] trails = FindObjectsByType<DroneTrail>(FindObjectsSortMode.None);
+        for (int i = 0; i < trails.Length; i++)
+        {
+            var renderer = trails[i].GetComponent<LineRenderer>();
+            if (renderer != null) renderer.enabled = pathVisible;
+        }
+        layersStyle?.SetSelected(pathVisible);
+        Debug.Log("[DashboardUI] Layers: " + (pathVisible ? "ON" : "OFF"));
+    }
+
+    void ToggleLighting()
+    {
+        lightingEnabled = DroneSkyEnvironment.ToggleLighting();
+        lightingStyle?.SetSelected(lightingEnabled);
+        Debug.Log("[DashboardUI] Lighting: " + (lightingEnabled ? "ON" : "OFF"));
+    }
+
+    void ToggleSettingsPanel()
+    {
+        if (settingsPanel == null) return;
+        bool show = !settingsPanel.activeSelf;
+        settingsPanel.SetActive(show);
+        settingsStyle?.SetSelected(show);
+        Debug.Log("[DashboardUI] Settings: " + (show ? "OPEN" : "CLOSED"));
+    }
+
+    void ToggleViewportFullscreen()
+    {
+        if (centerViewport == null || dashboardCanvas == null) return;
+
+        if (!viewportFullscreen)
+        {
+            viewportAnchorMin = centerViewport.anchorMin;
+            viewportAnchorMax = centerViewport.anchorMax;
+            viewportOffsetMin = centerViewport.offsetMin;
+            viewportOffsetMax = centerViewport.offsetMax;
+            viewportSiblingIndex = centerViewport.GetSiblingIndex();
+            centerViewport.anchorMin = Vector2.zero;
+            centerViewport.anchorMax = Vector2.one;
+            centerViewport.offsetMin = new Vector2(OUTER_PAD, OUTER_PAD);
+            centerViewport.offsetMax = new Vector2(-OUTER_PAD, -OUTER_PAD);
+            centerViewport.SetAsLastSibling();
+            viewportFullscreen = true;
+            fullscreenStyle?.SetSelected(true);
+        }
+        else
+        {
+            centerViewport.anchorMin = viewportAnchorMin;
+            centerViewport.anchorMax = viewportAnchorMax;
+            centerViewport.offsetMin = viewportOffsetMin;
+            centerViewport.offsetMax = viewportOffsetMax;
+            centerViewport.SetSiblingIndex(viewportSiblingIndex);
+            viewportFullscreen = false;
+            fullscreenStyle?.SetSelected(false);
+        }
+        Debug.Log("[DashboardUI] Fullscreen viewport: " + (viewportFullscreen ? "ON" : "OFF"));
+    }
+
+    void BuildSettingsPanel(GameObject center)
+    {
+        settingsPanel = new GameObject("SettingsPanel", typeof(RectTransform), typeof(Image));
+        settingsPanel.transform.SetParent(center.transform, false);
+        settingsPanel.GetComponent<Image>().color = CARD;
+        StylePanel(settingsPanel);
+        var rt = (RectTransform)settingsPanel.transform;
+        rt.anchorMin = rt.anchorMax = new Vector2(1, 1);
+        rt.pivot = new Vector2(1, 1);
+        rt.anchoredPosition = new Vector2(-10, -48);
+        rt.sizeDelta = new Vector2(310, 192);
+
+        var layout = settingsPanel.AddComponent<VerticalLayoutGroup>();
+        layout.padding = new RectOffset(10, 10, 9, 10);
+        layout.spacing = 5;
+        layout.childForceExpandWidth = true;
+        layout.childForceExpandHeight = false;
+        SectionHeader(settingsPanel, "SYSTEM / CONNECTION", DroneUIFX.IconType.Settings);
+        InfoRow(settingsPanel, "TELEMETRY UDP", rx != null ? rx.listenPort.ToString() : "--");
+        InfoRow(settingsPanel, "COMMAND TARGET", rx != null ? $"{rx.commandTargetIP}:{rx.commandPort}" : "--");
+        InfoRow(settingsPanel, "BATTERY WARNING", $"{ui.batteryLowPercent}%");
+        InfoRow(settingsPanel, "VIBRATION LAND", $"{ui.vibCriticalThreshold:0} m/s²");
+        MakeAeroButton(settingsPanel, "CLOSE", BTN_MODE_ACCENT, false, ToggleSettingsPanel, 9, 28);
+        settingsPanel.SetActive(false);
+    }
+
+    void InfoRow(GameObject parent, string label, string value)
+    {
+        var row = new GameObject(label, typeof(RectTransform));
+        row.transform.SetParent(parent.transform, false);
+        row.AddComponent<LayoutElement>().preferredHeight = 22;
+        var layout = row.AddComponent<HorizontalLayoutGroup>();
+        layout.spacing = 8;
+        layout.childAlignment = TextAnchor.MiddleLeft;
+        layout.childForceExpandWidth = false;
+
+        var labelGO = new GameObject("Label", typeof(RectTransform));
+        labelGO.transform.SetParent(row.transform, false);
+        labelGO.AddComponent<LayoutElement>().flexibleWidth = 1;
+        var labelText = labelGO.AddComponent<TextMeshProUGUI>();
+        labelText.text = label;
+        labelText.fontSize = 9;
+        labelText.characterSpacing = 6;
+        labelText.color = TXT_DIM;
+        labelText.alignment = TextAlignmentOptions.MidlineLeft;
+
+        var valueGO = new GameObject("Value", typeof(RectTransform));
+        valueGO.transform.SetParent(row.transform, false);
+        valueGO.AddComponent<LayoutElement>().preferredWidth = 150;
+        var valueText = valueGO.AddComponent<TextMeshProUGUI>();
+        valueText.text = value;
+        valueText.fontSize = 10;
+        valueText.fontStyle = FontStyles.Bold;
+        valueText.color = TXT;
+        valueText.alignment = TextAlignmentOptions.MidlineRight;
+    }
+
     void BuildAlarmBanner(GameObject center)
     {
         var go = new GameObject("AlarmBanner", typeof(RectTransform), typeof(Image));
@@ -763,12 +1296,14 @@ public class DroneDashboardUI : MonoBehaviour
         img.color = new Color(0,0,0,0);
         ui.alarmBannerBg = img;
         var rt = (RectTransform)go.transform;
-        rt.anchorMin = new Vector2(0, 0.88f); rt.anchorMax = new Vector2(1, 1f);
-        rt.offsetMin = new Vector2(8, -2); rt.offsetMax = new Vector2(-8, -8);
+        rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 1f);
+        rt.pivot = new Vector2(0.5f, 1f);
+        rt.anchoredPosition = new Vector2(0, -102);
+        rt.sizeDelta = new Vector2(560, 30);
         var txt = new GameObject("AlarmText", typeof(RectTransform));
         txt.transform.SetParent(go.transform, false);
         var t = txt.AddComponent<TextMeshProUGUI>();
-        t.text = ""; t.fontSize = 14; t.fontStyle = FontStyles.Bold;
+        t.text = ""; t.fontSize = 11; t.fontStyle = FontStyles.Bold;
         t.characterSpacing = 6; t.color = Color.white; t.alignment = TextAlignmentOptions.Center;
         ui.alarmBannerText = t;
         var trt = t.rectTransform;
@@ -779,40 +1314,38 @@ public class DroneDashboardUI : MonoBehaviour
     void BuildBottomBar(GameObject bar)
     {
         var hl = bar.AddComponent<HorizontalLayoutGroup>();
-        hl.spacing = 8;
+        hl.spacing = 7;
         hl.childAlignment = TextAnchor.MiddleCenter;
         hl.childForceExpandHeight = true;
         hl.childForceExpandWidth = true;
 
         TextMeshProUGUI v1, t1;
-        var g1 = DroneUIFX.CreateGraphCard(bar.transform, "ALTITUDE", "m", new Color(0.22f,0.64f,0.82f,1f), out v1, out t1);
+        var g1 = DroneUIFX.CreateGraphCard(bar.transform, "ALTITUDE  (m)", "m", ACCENT, out v1, out t1);
         g1.autoScale = true;
-        g1.thickness = 1.9f;
-        g1.fillColor = new Color(0.22f,0.64f,0.82f,0.07f);
+        g1.thickness = 2.1f;
+        g1.fillColor = new Color(ACCENT.r, ACCENT.g, ACCENT.b, 0.10f);
         fx.widgets.Add(g1);
         ui.altitudeGraph = g1; ui.altitudeGraphValue = v1;
 
         TextMeshProUGUI v2, t2;
-        var g2 = DroneUIFX.CreateGraphCard(bar.transform, "GROUND SPEED", "m/s", new Color(0.52f,0.62f,0.85f,1f), out v2, out t2);
+        var g2 = DroneUIFX.CreateGraphCard(bar.transform, "GROUND SPEED  (m/s)", "m/s", ACCENT, out v2, out t2);
         g2.autoScale = true;
         g2.manualMin = 0; g2.manualMax = 5;
-        g2.fillColor = new Color(0.52f,0.62f,0.85f,0.07f);
+        g2.fillColor = new Color(ACCENT.r, ACCENT.g, ACCENT.b, 0.10f);
         fx.widgets.Add(g2);
         ui.speedGraph = g2; ui.speedGraphValue = v2;
 
         TextMeshProUGUI v3, t3;
-        var g3 = DroneUIFX.CreateGraphCard(bar.transform, "BATTERY", "%", GREEN, out v3, out t3);
-        g3.autoScale = false;
-        g3.manualMin = 0; g3.manualMax = 100;
-        g3.fillColor = new Color(GREEN.r, GREEN.g, GREEN.b, 0.06f);
+        var g3 = DroneUIFX.CreateGraphCard(bar.transform, "BATTERY  (%)", "%", ACCENT, out v3, out t3);
+        g3.autoScale = true;
+        g3.fillColor = new Color(ACCENT.r, ACCENT.g, ACCENT.b, 0.10f);
         fx.widgets.Add(g3);
         ui.batteryGraph = g3; ui.batteryGraphValue = v3;
 
         TextMeshProUGUI v4, t4;
-        var g4 = DroneUIFX.CreateGraphCard(bar.transform, "LINK LATENCY", "ms", ACCENT, out v4, out t4);
-        g4.autoScale = false;
-        g4.manualMin = 0; g4.manualMax = 320;
-        g4.fillColor = new Color(ACCENT.r, ACCENT.g, ACCENT.b, 0.06f);
+        var g4 = DroneUIFX.CreateGraphCard(bar.transform, "LINK LATENCY  (ms)", "ms", ACCENT, out v4, out t4);
+        g4.autoScale = true;
+        g4.fillColor = new Color(ACCENT.r, ACCENT.g, ACCENT.b, 0.10f);
         fx.widgets.Add(g4);
         ui.latencyGraph = g4; ui.latencyGraphValue = v4;
     }
@@ -821,10 +1354,16 @@ public class DroneDashboardUI : MonoBehaviour
     /// Only fires `onConfirm` if the user presses CONFIRM.
     void ConfirmDialog(string title, string message, string confirmLabel, UnityEngine.Events.UnityAction onConfirm)
     {
-        var canvas = GetComponentInChildren<Canvas>();
-        if (canvas == null) { onConfirm(); return; }
+        var canvas = dashboardCanvas != null ? dashboardCanvas : GetComponentInChildren<Canvas>();
+        if (canvas == null)
+        {
+            Debug.LogError("[DashboardUI] Cannot show force-disarm confirmation because the dashboard Canvas is unavailable.");
+            return;
+        }
         var root = new GameObject("ConfirmDialog", typeof(RectTransform));
         root.transform.SetParent(canvas.transform, false);
+        Stretch((RectTransform)root.transform);
+        Debug.Log("[DashboardUI] Confirmation opened: " + title);
 
         // full-screen blocker — intercepts all clicks
         var dim = new GameObject("Dim", typeof(RectTransform), typeof(Image));
@@ -931,8 +1470,8 @@ public class DroneDashboardUI : MonoBehaviour
         le.flexibleHeight = flexibleHeight;
 
         var vl = card.AddComponent<VerticalLayoutGroup>();
-        vl.padding = new RectOffset(12, 12, 10, 11);
-        vl.spacing = 5;
+        vl.padding = new RectOffset(9, 9, 8, 9);
+        vl.spacing = 4;
         vl.childForceExpandWidth = true;
         vl.childForceExpandHeight = false;
         vl.childControlWidth = true;
@@ -944,27 +1483,30 @@ public class DroneDashboardUI : MonoBehaviour
     {
         var image = panel.GetComponent<Image>();
         if (image == null) return;
+        Color fillColor = image.color;
         image.sprite = DroneUIFX.RoundedRectSprite;
         image.type = Image.Type.Sliced;
-        var outline = panel.GetComponent<Outline>();
-        if (outline == null) outline = panel.AddComponent<Outline>();
-        outline.effectColor = BORDER;
-        outline.effectDistance = new Vector2(1f, -1f);
-        outline.useGraphicAlpha = false;
+        image.color = BORDER;
+
+        var fill = new GameObject("PanelFill", typeof(RectTransform), typeof(Image));
+        fill.transform.SetParent(panel.transform, false);
+        fill.transform.SetAsFirstSibling();
+        var fillImage = fill.GetComponent<Image>();
+        fillImage.sprite = DroneUIFX.RoundedRectSprite;
+        fillImage.type = Image.Type.Sliced;
+        fillImage.color = fillColor;
+        fillImage.raycastTarget = false;
+        fill.AddComponent<LayoutElement>().ignoreLayout = true;
+        Stretch((RectTransform)fill.transform, 1f);
     }
 
     TextMeshProUGUI VerticalStat(GameObject parent, string label, string initial)
     {
-        var stat = new GameObject(label + "Stat", typeof(RectTransform), typeof(Image));
+        var stat = new GameObject(label + "Stat", typeof(RectTransform));
         stat.transform.SetParent(parent.transform, false);
         stat.AddComponent<LayoutElement>().flexibleHeight = 1;
-        var image = stat.GetComponent<Image>();
-        image.sprite = DroneUIFX.RoundedRectSprite;
-        image.type = Image.Type.Sliced;
-        image.color = new Color(0.06f, 0.10f, 0.14f, 0.72f);
-        image.raycastTarget = false;
         var vl = stat.AddComponent<VerticalLayoutGroup>();
-        vl.padding = new RectOffset(10, 8, 4, 4);
+        vl.padding = new RectOffset(7, 2, 2, 2);
         vl.spacing = 0;
         vl.childForceExpandHeight = true;
 
@@ -982,7 +1524,7 @@ public class DroneDashboardUI : MonoBehaviour
         valueGO.transform.SetParent(stat.transform, false);
         var value = valueGO.AddComponent<TextMeshProUGUI>();
         value.text = initial;
-        value.fontSize = 18;
+        value.fontSize = 16;
         value.fontStyle = FontStyles.Bold;
         value.color = ACCENT;
         value.alignment = TextAlignmentOptions.MidlineLeft;
@@ -993,7 +1535,7 @@ public class DroneDashboardUI : MonoBehaviour
     {
         var row = new GameObject(label + "Status", typeof(RectTransform));
         row.transform.SetParent(parent.transform, false);
-        row.AddComponent<LayoutElement>().preferredHeight = 25;
+        row.AddComponent<LayoutElement>().preferredHeight = 23;
         var hl = row.AddComponent<HorizontalLayoutGroup>();
         hl.padding = new RectOffset(3, 3, 0, 0);
         hl.spacing = 9;
@@ -1015,7 +1557,7 @@ public class DroneDashboardUI : MonoBehaviour
         labelGO.transform.SetParent(row.transform, false);
         var labelText = labelGO.AddComponent<TextMeshProUGUI>();
         labelText.text = label;
-        labelText.fontSize = 10;
+        labelText.fontSize = 9;
         labelText.characterSpacing = 6;
         labelText.color = TXT_SEC;
         labelText.alignment = TextAlignmentOptions.MidlineLeft;
@@ -1027,7 +1569,7 @@ public class DroneDashboardUI : MonoBehaviour
         valueGO.transform.SetParent(row.transform, false);
         var value = valueGO.AddComponent<TextMeshProUGUI>();
         value.text = "WAIT";
-        value.fontSize = 10;
+        value.fontSize = 9;
         value.fontStyle = FontStyles.Bold;
         value.characterSpacing = 6;
         value.color = TXT_DIM;
@@ -1069,25 +1611,58 @@ public class DroneDashboardUI : MonoBehaviour
         }
     }
 
-    void SectionHeader(GameObject parent, string title)
+    void SectionHeader(GameObject parent, string title, DroneUIFX.IconType icon)
     {
         var go = new GameObject("Hdr_" + title, typeof(RectTransform));
         go.transform.SetParent(parent.transform, false);
-        go.AddComponent<LayoutElement>().preferredHeight = 18;
+        go.AddComponent<LayoutElement>().preferredHeight = 16;
         var hl = go.AddComponent<HorizontalLayoutGroup>();
-        hl.childAlignment = TextAnchor.MiddleLeft; hl.spacing = 8;
+        hl.childAlignment = TextAnchor.MiddleLeft; hl.spacing = 6;
         hl.childForceExpandWidth = false;
         var line = new GameObject("Line", typeof(RectTransform), typeof(Image));
         line.transform.SetParent(go.transform, false);
-        line.AddComponent<LayoutElement>().preferredWidth = 3;
+        line.AddComponent<LayoutElement>().preferredWidth = 2;
         line.GetComponent<Image>().color = ACCENT;
+        DroneUIFX.CreateIcon(go.transform, icon, 12f, TXT_SEC);
         var txtGO = new GameObject("Text", typeof(RectTransform));
         txtGO.transform.SetParent(go.transform, false);
         txtGO.AddComponent<LayoutElement>().flexibleWidth = 1;
         var txt = txtGO.AddComponent<TextMeshProUGUI>();
-        txt.text = title; txt.fontSize = 10; txt.characterSpacing = 14;
+        txt.text = title; txt.fontSize = 9; txt.characterSpacing = 11;
         txt.fontStyle = FontStyles.Bold; txt.color = TXT_DIM;
         txt.alignment = TextAlignmentOptions.MidlineLeft;
+    }
+
+    TextMeshProUGUI CompactInlineMetric(GameObject parent, string label)
+    {
+        var metric = new GameObject(label + "Metric", typeof(RectTransform));
+        metric.transform.SetParent(parent.transform, false);
+        metric.AddComponent<LayoutElement>().flexibleWidth = 1;
+        var layout = metric.AddComponent<HorizontalLayoutGroup>();
+        layout.spacing = 5;
+        layout.childAlignment = TextAnchor.MiddleLeft;
+        layout.childForceExpandWidth = false;
+
+        var labelGO = new GameObject("Label", typeof(RectTransform));
+        labelGO.transform.SetParent(metric.transform, false);
+        labelGO.AddComponent<LayoutElement>().preferredWidth = 13;
+        var labelText = labelGO.AddComponent<TextMeshProUGUI>();
+        labelText.text = label;
+        labelText.fontSize = 10;
+        labelText.fontStyle = FontStyles.Bold;
+        labelText.color = TXT_SEC;
+        labelText.alignment = TextAlignmentOptions.MidlineLeft;
+
+        var valueGO = new GameObject("Value", typeof(RectTransform));
+        valueGO.transform.SetParent(metric.transform, false);
+        valueGO.AddComponent<LayoutElement>().flexibleWidth = 1;
+        var value = valueGO.AddComponent<TextMeshProUGUI>();
+        value.text = "--";
+        value.fontSize = 15;
+        value.fontStyle = FontStyles.Bold;
+        value.color = ACCENT;
+        value.alignment = TextAlignmentOptions.MidlineLeft;
+        return value;
     }
 
     /// Slim, box-free stat row. Label (small uppercase) left, value right.
@@ -1100,13 +1675,13 @@ public class DroneDashboardUI : MonoBehaviour
 
         var hl = row.AddComponent<HorizontalLayoutGroup>();
         hl.padding = new RectOffset(2, 2, 0, 0);
-        hl.spacing = 8; hl.childForceExpandWidth = false;
+        hl.spacing = 5; hl.childForceExpandWidth = false;
         hl.childAlignment = TextAnchor.MiddleLeft;
 
         var lblGO = new GameObject("Label", typeof(RectTransform));
         lblGO.transform.SetParent(row.transform, false);
         var lbl = lblGO.AddComponent<TextMeshProUGUI>();
-        lbl.text = label; lbl.fontSize = 10; lbl.characterSpacing = 8;
+        lbl.text = label; lbl.fontSize = 9; lbl.characterSpacing = 6;
         lbl.fontStyle = FontStyles.Bold; lbl.color = prominent ? TXT_SEC : TXT_DIM;
         lbl.alignment = TextAlignmentOptions.MidlineLeft;
         var lle = lblGO.AddComponent<LayoutElement>(); lle.preferredWidth = labelW; lle.flexibleWidth = 0;
@@ -1115,14 +1690,27 @@ public class DroneDashboardUI : MonoBehaviour
         valGO.transform.SetParent(row.transform, false);
         var val = valGO.AddComponent<TextMeshProUGUI>();
         val.text = "--";
-        val.fontSize = prominent ? 20 : 14;
+        val.fontSize = prominent ? 18 : 13;
         val.fontStyle = FontStyles.Bold;
         val.color = prominent ? NUM : NUM;
         val.alignment = TextAlignmentOptions.MidlineRight;
-        val.fontSizeMin = prominent ? 16 : 11;
-        val.fontSizeMax = prominent ? 20 : 14;
+        val.fontSizeMin = prominent ? 14 : 10;
+        val.fontSizeMax = prominent ? 18 : 13;
         val.enableAutoSizing = true;
         valGO.AddComponent<LayoutElement>().flexibleWidth = 1;
+
+        if (!string.IsNullOrEmpty(unit))
+        {
+            var unitGO = new GameObject("Unit", typeof(RectTransform));
+            unitGO.transform.SetParent(row.transform, false);
+            var unitText = unitGO.AddComponent<TextMeshProUGUI>();
+            unitText.text = unit;
+            unitText.fontSize = 8;
+            unitText.color = TXT_DIM;
+            unitText.alignment = TextAlignmentOptions.MidlineRight;
+            var unitLayout = unitGO.AddComponent<LayoutElement>();
+            unitLayout.preferredWidth = unit == "m/s" ? 25 : unit == "ms" ? 18 : 12;
+        }
 
         return val;
     }
@@ -1143,6 +1731,16 @@ public class DroneDashboardUI : MonoBehaviour
         var val = valGO.AddComponent<TextMeshProUGUI>();
         val.text = "--"; val.fontSize = 15; val.fontStyle = FontStyles.Bold;
         val.color = NUM; val.alignment = TextAlignmentOptions.Center;
+        if (!string.IsNullOrEmpty(unit))
+        {
+            var unitGO = new GameObject("Unit", typeof(RectTransform));
+            unitGO.transform.SetParent(col.transform, false);
+            var unitText = unitGO.AddComponent<TextMeshProUGUI>();
+            unitText.text = unit;
+            unitText.fontSize = 8;
+            unitText.color = TXT_DIM;
+            unitText.alignment = TextAlignmentOptions.Center;
+        }
         return val;
     }
 
@@ -1160,7 +1758,9 @@ public class DroneDashboardUI : MonoBehaviour
         rt.offsetMin = new Vector2(0,-0.5f); rt.offsetMax = new Vector2(0,0.5f);
     }
 
-    void MakeAeroButton(GameObject parent, string label, Color accent, bool destructive, UnityEngine.Events.UnityAction cb, float fontSize = 13, float height = 42)
+    DroneUIFX.AeroButtonHoverFX MakeAeroButton(GameObject parent, string label, Color accent, bool destructive,
+        UnityEngine.Events.UnityAction cb, float fontSize = 13, float height = 42,
+        DroneUIFX.IconType? icon = null)
     {
         var go = new GameObject(label + "Btn", typeof(RectTransform), typeof(Image), typeof(Button));
         go.transform.SetParent(parent.transform, false);
@@ -1184,8 +1784,18 @@ public class DroneDashboardUI : MonoBehaviour
         t.alignment = TextAlignmentOptions.Center; t.raycastTarget = false;
         var trt = t.rectTransform; trt.anchorMin = Vector2.zero; trt.anchorMax = Vector2.one; trt.offsetMin = trt.offsetMax = Vector2.zero;
 
-        DroneUIFX.ApplyAeroButtonStyle(go, accent, destructive);
+        var style = DroneUIFX.ApplyAeroButtonStyle(go, accent, destructive);
+        if (icon.HasValue)
+        {
+            var iconImage = DroneUIFX.CreateIcon(go.transform, icon.Value, 14f, destructive ? RED : TXT_SEC);
+            var iconRT = iconImage.rectTransform;
+            iconRT.anchorMin = iconRT.anchorMax = new Vector2(0, 0.5f);
+            iconRT.pivot = new Vector2(0, 0.5f);
+            iconRT.anchoredPosition = new Vector2(10, 0);
+            iconRT.sizeDelta = new Vector2(14, 14);
+        }
         txtGO.transform.SetAsLastSibling();
+        return style;
     }
 
     void Stretch(RectTransform rt, float inset)

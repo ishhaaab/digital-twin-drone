@@ -10,15 +10,15 @@ using UnityEngine.UI;
 ///   speed    -> DroneData.speed (derived in DroneDataReceiver.ComputeVelocity, lines 328-353)
 ///   latency  -> DroneDataReceiver.latencyStats.mean (computed from send timestamp in DroneDataReceiver.Update lines 258-262)
 ///
-/// Rendering: custom UGUI mesh (quads per segment), thickness 1.8px, grid 0.06 alpha.
-/// History size 120 (12 s at 10 Hz, minimal allocation). No per-frame GC beyond VertexHelper's internal lists which Unity reuses.
+/// Rendering: custom UGUI mesh (quads per segment), thin line, low-contrast grid.
+/// The updater samples at 5 Hz, so 301 samples represent a 60-second window.
 public class TelemetryGraph : MaskableGraphic, DroneUIFX.IFxWidget
 {
     [Header("Data")]
-    public int capacity = 120;
-    float[] buffer;
-    int head = 0;          // next write index
-    int filled = 0;
+    public int capacity = 301;
+    [SerializeField] float[] buffer;
+    [SerializeField] int head = 0;          // next write index
+    [SerializeField] int filled = 0;
 
     [Header("Range")]
     public bool autoScale = false;
@@ -34,6 +34,7 @@ public class TelemetryGraph : MaskableGraphic, DroneUIFX.IFxWidget
     public bool drawFill = true;
     public bool drawGrid = true;
     public int gridLines = 3;
+    public int verticalGridLines = 4;
 
     // display smoothing not needed — data is already smoothed by telemetry rate.
     // Tick kept for IFxWidget compatibility; graphing is event-driven via Push().
@@ -46,6 +47,12 @@ public class TelemetryGraph : MaskableGraphic, DroneUIFX.IFxWidget
             buffer = new float[capacity];
         // UGUI MaskableGraphic needs raycastTarget false for perf unless interactive
         raycastTarget = false;
+    }
+
+    protected override void OnEnable()
+    {
+        base.OnEnable();
+        SetVerticesDirty();
     }
 
 #pragma warning disable CS0114
@@ -137,7 +144,21 @@ public class TelemetryGraph : MaskableGraphic, DroneUIFX.IFxWidget
             }
         }
 
-        if (filled < 2) return;
+        if (drawGrid && verticalGridLines > 0)
+        {
+            for (int g = 0; g <= verticalGridLines; g++)
+            {
+                float x = r.x + (r.width * g / verticalGridLines);
+                AddQuad(vh,
+                    new Vector2(x - 0.4f, r.y),
+                    new Vector2(x + 0.4f, r.y),
+                    new Vector2(x + 0.4f, r.y + r.height),
+                    new Vector2(x - 0.4f, r.y + r.height),
+                    gridColor);
+            }
+        }
+
+        if (filled == 0) return;
 
         // Determine vertical range
         float vMin, vMax;
@@ -173,14 +194,12 @@ public class TelemetryGraph : MaskableGraphic, DroneUIFX.IFxWidget
         {
             int idx = (head - filled + i + capacity) % capacity;
             float v = buffer[idx];
-            float t = (float)i / (capacity - 1); // keep full width even when not full yet — aligns newest to right
-            // When filled < capacity, we still want line to stretch across? Better to pin oldest at left, newest at (filled-1)/capacity * width
-            // So use i/(capacity-1) only when filled==capacity, else i/(filled-1)
-            if (filled < capacity && filled > 1)
-                t = (float)i / (filled - 1);
+            float t = filled == 1 ? 1f
+                : filled < capacity ? (float)i / (filled - 1)
+                : (float)i / (capacity - 1);
             float x = r.x + t * r.width;
             float norm = Mathf.Clamp01((v - vMin) / vRange);
-            float y = r.y + norm * r.height;
+            float y = r.y + 2f + norm * Mathf.Max(1f, r.height - 4f);
             pts[i] = new Vector2(x, y);
         }
 

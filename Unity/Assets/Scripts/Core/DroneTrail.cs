@@ -4,7 +4,7 @@ using UnityEngine;
 /// Previously used List.RemoveAt(0) O(n) + ToArray() allocation each new point.
 /// Now: ring buffer of maxPoints, reusable posCache, no GC.
 ///
-/// Evidence: trail consumes DroneController's world position (Unity space, NED→Unity scaled in DroneController:75-77).
+/// Evidence: trail consumes DroneController's world position (Unity space, uniformly converted from NED meters).
 /// Home position is the first pushed point; not a fabricated GPS coordinate.
 [RequireComponent(typeof(LineRenderer))]
 public class DroneTrail : MonoBehaviour

@@ -7,9 +7,15 @@ using UnityEngine.Rendering;
 public static class DroneSkyEnvironment
 {
     static Material runtimeSky;
+    static Light runtimeSun;
+    static bool lightingEnabled = true;
 
     public static void EnsureSceneSky()
     {
+        DroneController controller = Object.FindFirstObjectByType<DroneController>();
+        float unitsPerMeter = controller != null ? controller.metersToUnity : 1f;
+        DroneWorldGrid.EnsureGrid(unitsPerMeter: unitsPerMeter);
+
         Shader skyShader = Shader.Find("Skybox/Procedural");
         if (skyShader == null)
         {
@@ -73,11 +79,24 @@ public static class DroneSkyEnvironment
         // The sun disk sits low and to the right of the default drone camera.
         sun.transform.rotation = Quaternion.Euler(10f, 205f, 0f);
         RenderSettings.sun = sun;
+        runtimeSun = sun;
+        lightingEnabled = true;
 
         Camera[] cameras = Object.FindObjectsByType<Camera>(FindObjectsSortMode.None);
         for (int i = 0; i < cameras.Length; i++)
             cameras[i].clearFlags = CameraClearFlags.Skybox;
 
         DynamicGI.UpdateEnvironment();
+    }
+
+    public static bool ToggleLighting()
+    {
+        if (runtimeSun == null) EnsureSceneSky();
+        lightingEnabled = !lightingEnabled;
+        if (runtimeSun != null) runtimeSun.intensity = lightingEnabled ? 1.1f : 0.28f;
+        RenderSettings.ambientIntensity = lightingEnabled ? 0.85f : 0.42f;
+        RenderSettings.fog = lightingEnabled;
+        DynamicGI.UpdateEnvironment();
+        return lightingEnabled;
     }
 }

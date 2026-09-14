@@ -11,9 +11,10 @@ Field layout matches Tools/MAVLink/mavlink_bridge.py — see the docstring
 there for the field-by-field breakdown.
 
 Usage:
-    python udp_simulator.py                     # 10 Hz circle, 30 s
-    python udp_simulator.py --seconds 0         # run forever (Ctrl+C to stop)
+    python udp_simulator.py                     # 10 Hz, 5 m / 15 s circle until Ctrl+C
+    python udp_simulator.py --seconds 30        # stop after 30 seconds
     python udp_simulator.py --rate 20 --seconds 60
+    python udp_simulator.py --radius 10 --period 30
     python udp_simulator.py --ip 127.0.0.1 --tx-port 5055 --rx-port 5056
 """
 
@@ -33,10 +34,12 @@ def build_parser():
                    help="command IN port, where Unity sends LAND/modes (default 5056)")
     p.add_argument("--rate", type=float, default=10.0,
                    help="packets per second (default 10)")
-    p.add_argument("--seconds", type=float, default=30.0,
-                   help="run duration in seconds; 0 = forever (default 30)")
-    p.add_argument("--radius", type=float, default=2.0,
-                   help="circle radius in meters (default 2)")
+    p.add_argument("--seconds", type=float, default=0.0,
+                   help="run duration in seconds; 0 = forever (default 0)")
+    p.add_argument("--radius", type=float, default=5.0,
+                   help="circle radius in meters (default 5)")
+    p.add_argument("--period", type=float, default=15.0,
+                   help="seconds per circle (default 15)")
     p.add_argument("--altitude", type=float, default=2.0,
                    help="cruise altitude in meters (default 2)")
     p.add_argument("--spike-after", type=float, default=10.0,
@@ -52,9 +55,10 @@ class SimDrone:
 
     MODES = ["STABILIZE", "ALT_HOLD", "LOITER", "POSHOLD"]
 
-    def __init__(self, radius, altitude, drain_per_min):
+    def __init__(self, radius, altitude, drain_per_min, period=15.0):
         self.radius = radius
         self.altitude = altitude
+        self.angular_rate = 2.0 * math.pi / max(period, 0.1)
         self.drain_per_s = drain_per_min / 60.0
         self.battery = 100.0
         self.armed = 1
@@ -69,7 +73,7 @@ class SimDrone:
         mode = self.MODES[int(t / 8.0) % len(self.MODES)]
 
         # ---- flight path: circle in NED (Unity X=east=+y, Z=north=+x, Y=up=+z) ----
-        theta = t
+        theta = t * self.angular_rate
         x = self.radius * math.cos(theta)              # north
         y = self.radius * math.sin(theta)              # east
         base_z = self.altitude + 0.3 * math.sin(t * 2.0)    # up (+) with a small bob
@@ -97,9 +101,12 @@ class SimDrone:
         if spike:
             vib = 95.0                                # > receiver threshold (60)
 
-        # ---- GPS: fixed origin drifting with position ----
-        lat = 28.6139 + x * 1.5e-5
-        lon = 77.2090 + y * 1.5e-5
+        # ---- GPS: local meter offsets projected around a fixed test origin ----
+        origin_lat = 28.6139
+        origin_lon = 77.2090
+        meters_per_degree = 111320.0
+        lat = origin_lat + x / meters_per_degree
+        lon = origin_lon + y / (meters_per_degree * math.cos(math.radians(origin_lat)))
 
         return "%.3f,%.3f,%.3f,%.2f,%.2f,%.2f,1,%d,%.2f,%.2f,%.2f,%.3f,%s,%d,%.2f,%.2f,12,%.6f,%.6f,%.3f" % (
             x, y, z,
@@ -144,7 +151,7 @@ def main():
     print("Commands  <- UDP %s:%d" % (args.ip, args.rx_port))
     print("Ctrl+C to stop.")
 
-    drone = SimDrone(args.radius, args.altitude, args.battery_drain)
+    drone = SimDrone(args.radius, args.altitude, args.battery_drain, args.period)
     start = time.time()
     last_t = start
     last_print = start

@@ -64,13 +64,25 @@ widget (position, attitude, battery ring, vibration, latency, GPS, mode/armed)
 and the command buttons come alive with zero hardware:
 
 ```bash
-python Tools/MAVLink/udp_simulator.py            # 10 Hz circle, 30 s
-python Tools/MAVLink/udp_simulator.py --seconds 0   # run forever
+python Tools/MAVLink/udp_simulator.py               # 10 Hz, 5 m / 15 s circle until Ctrl+C
+python Tools/MAVLink/udp_simulator.py --seconds 30  # optional fixed run
+python Tools/MAVLink/udp_simulator.py --radius 10 --period 30
+python Tools/MAVLink/udp_simulator.py --spike-after 0  # disable vibration spike
 python Tools/MAVLink/udp_simulator.py --spike-after 5   # trip vibration auto-land
 ```
 
 Run it *instead of* `mavlink_bridge.py` when you're testing that Unity
 behaviours work. It listens on the command port too, so LAND/mode buttons do something.
+
+## Map view
+
+Map View renders live OpenStreetMap raster tiles behind the GPS track. Drag to
+pan, use the mouse wheel or the `-` / `+` controls to zoom, and use the target
+control to recenter on the aircraft. The first view requires internet access;
+only visible tiles are requested and they are cached locally for seven days.
+OpenStreetMap attribution remains visible in the viewport. The tile URL and
+application user agent are configurable on `DroneDashboardUI`, allowing a
+self-hosted OSM-compatible tile service to be used instead.
 
 ## UDP protocol
 

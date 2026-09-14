@@ -15,10 +15,11 @@ Run from this folder:
     python -m unittest test_mavlink -v --ip  (use any Python >= 3.8)
 """
 
+import math
 import time
 import unittest
 
-from udp_simulator import SimDrone
+from udp_simulator import SimDrone, build_parser
 
 try:
     import mavlink_bridge
@@ -62,6 +63,23 @@ def parse_line(line):
 class SimulatorSnapshotTest(unittest.TestCase):
     def setUp(self):
         self.drone = SimDrone(radius=2.0, altitude=2.0, drain_per_min=3.0)
+
+    def test_simulator_runs_until_stopped_by_default(self):
+        args = build_parser().parse_args([])
+        self.assertEqual(args.seconds, 0.0)
+        self.assertEqual(args.radius, 5.0)
+        self.assertEqual(args.period, 15.0)
+
+    def test_gps_offsets_match_local_position_meters(self):
+        drone = SimDrone(radius=5.0, altitude=2.0, drain_per_min=3.0, period=15.0)
+        north = parse_line(drone.snapshot(0.0, 0.0))
+        north_meters = (north["lat"] - 28.6139) * 111320.0
+        self.assertAlmostEqual(north_meters, 5.0, delta=0.1)
+
+        east = parse_line(drone.snapshot(15.0 / 4.0, 0.1))
+        east_meters = ((east["lon"] - 77.2090) * 111320.0
+                       * math.cos(math.radians(28.6139)))
+        self.assertAlmostEqual(east_meters, 5.0, delta=0.1)
 
     def test_field_count_is_20(self):
         line = self.drone.snapshot(1.0, 0.1)

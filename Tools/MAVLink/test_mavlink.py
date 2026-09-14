@@ -105,8 +105,10 @@ class SimulatorSnapshotTest(unittest.TestCase):
     def test_landing_command_altitude_decays_and_disarms(self):
         drone = SimDrone(2.0, 2.0, 3.0)
         drone.on_command("LAND", 0.0)
+        t = 0.0
         for i in range(1, 200):
-            d = parse_line(drone.snapshot(0.0, 0.1))
+            t += 0.1
+            d = parse_line(drone.snapshot(t, 0.1))
         self.assertGreaterEqual(d["z"], 0.0)
         self.assertEqual(d["armed"], 0)
 

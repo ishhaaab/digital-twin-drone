@@ -126,7 +126,9 @@ def handle_command(master, mode_name_to_id, cmd):
     cmd = (cmd or "").strip().upper()
     if not cmd:
         return
-    print("CMD >>>", cmd)
+    # ascii-safe: garbage bytes decode to \ufffd which cp1252 can't print
+    safe = cmd.encode("ascii", "backslashreplace").decode("ascii")
+    print(f"CMD >>> {safe}")
 
     if cmd == "LAND":
         # MAV_CMD_NAV_LAND: land at the current location.
@@ -149,6 +151,16 @@ def handle_command(master, mode_name_to_id, cmd):
             mavutil.mavlink.MAV_CMD_DO_SET_MODE, 0,
             mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
             mode_name_to_id[cmd], 0, 0, 0, 0, 0)
+    elif mode_name_to_id and isinstance(next(iter(mode_name_to_id.values())), str):
+        # Back-compat: caller passed id→name table (e.g. MODE_TABLES["COPTER"]); invert it
+        inv = {v: k for k, v in mode_name_to_id.items()}
+        if cmd in inv:
+            master.mav.command_long_send(
+                master.target_system, master.target_component,
+                mavutil.mavlink.MAV_CMD_DO_SET_MODE, 0,
+                mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+                inv[cmd], 0, 0, 0, 0, 0)
+            return
 
     else:
         print("Unknown command:", cmd)

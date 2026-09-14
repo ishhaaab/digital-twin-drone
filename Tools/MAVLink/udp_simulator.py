@@ -60,6 +60,7 @@ class SimDrone:
         self.armed = 1
         self.landing = False
         self.land_start = 0.0
+        self._landing_descent = 0.0  # cumulative descent while landing
 
     def snapshot(self, t, dt, spike=False):
         """Return one 20-field CSV line for elapsed time `t`."""
@@ -71,14 +72,18 @@ class SimDrone:
         theta = t
         x = self.radius * math.cos(theta)              # north
         y = self.radius * math.sin(theta)              # east
-        z = self.altitude + 0.3 * math.sin(t * 2.0)    # up (+) with a small bob
+        base_z = self.altitude + 0.3 * math.sin(t * 2.0)    # up (+) with a small bob
 
         if self.landing:
-            z = max(0.0, z - 1.5 * dt)
+            self._landing_descent += 1.5 * dt
+            z = max(0.0, base_z - self._landing_descent)
             if z <= 0.02:
                 z = 0.0
                 self.armed = 0
                 self.landing = False
+        else:
+            self._landing_descent = 0.0
+            z = base_z
 
         # ---- attitude ----
         yaw = math.degrees(math.atan2(math.cos(theta), -math.sin(theta)))

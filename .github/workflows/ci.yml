@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+
+jobs:
+  python-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: pip install -r Tools/MAVLink/requirements.txt
+      - name: Run MAVLink tests
+        run: python -m unittest test_mavlink -v
+        working-directory: Tools/MAVLink
+      # Optional lint (best-effort, no fail on style)
+      - name: Ruff lint (if available)
+        run: pip install ruff && ruff check Tools/MAVLink/ || true
+
+  # Unity build check — smoke test only (no editor license needed for compile check)
+  # If you have a Unity license, replace with game-ci/unity-builder
+  unity-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check C# syntax (dotnet)
+        run: |
+          echo "Skipping Unity build — add game-ci with UNITY_LICENSE if needed"
+          ls Unity/Assets/Scripts/UI/TelemetryGraph.cs

@@ -6,6 +6,10 @@ separated values over UDP. Also listens on a second UDP port for plain-text
 commands from Unity ("LAND", "STABILIZE", ...) and forwards them back to the
 vehicle over MAVLink.
 
+This module is import-safe: nothing touches hardware or sockets until main()
+runs, so handle_command()/drain_commands() can be unit-tested with a fake
+master/rx socket and no serial port.
+
 CSV layout (20 fields, indices 0..19):
     0  x            NED X (north, m)         LOCAL_POSITION_NED
     1  y            NED Y (east,  m)         LOCAL_POSITION_NED
@@ -31,8 +35,15 @@ CSV layout (20 fields, indices 0..19):
 UDP endpoints:
     TX -> 127.0.0.1:5055   telemetry out to Unity
     RX <- 127.0.0.1:5056   commands from Unity
+
+Usage:
+    python mavlink_bridge.py
+    python mavlink_bridge.py --port COM5 --baud 115200
+    python mavlink_bridge.py --firmware PLANE
+    python mavlink_bridge.py --ip 127.0.0.1 --tx-port 5055 --rx-port 5056
 """
 
+import argparse
 import math
 import socket
 import time
@@ -40,6 +51,7 @@ import time
 from pymavlink import mavutil
 
 # ================= CONFIG =================
+# Command-line defaults (override with --port/--baud/--firmware).
 PORT = 'COM3'
 BAUD = 57600
 
@@ -49,7 +61,7 @@ UDP_RX_IP = "127.0.0.1"
 UDP_RX_PORT = 5056    # commands <- Unity (matches DroneDataReceiver.commandPort)
 
 # Firmware whose flight-mode numbers we send in MAV_CMD_DO_SET_MODE.
-# Default mapping is ArduCopter; swap for FIRMWARE = "PLANE" if you fly a plane.
+# Default mapping is ArduCopter; swap with --firmware PLANE if you fly a plane.
 FIRMWARE = "COPTER"
 # ==========================================
 
@@ -81,53 +93,36 @@ PLANE_MODES = {
     20: "QLAND", 21: "QRTL", 22: "QAUTOTUNE", 23: "QACRO", 24: "THERMAL",
 }
 MODE_TABLES = {"COPTER": COPTER_MODES, "PLANE": PLANE_MODES}
-MODE_NAME_TO_ID = {name: num for num, name in MODE_TABLES[FIRMWARE].items()}
 
 
-print("Connecting...")
-master = mavutil.mavlink_connection(PORT, baud=BAUD)
-master.wait_heartbeat()
-print("Connected! (system %d, component %d)"
-      % (master.target_system, master.target_component))
-
-# Request the telemetry streams Unity consumes.
-for msg_name, rate_us in MESSAGE_RATES_US.items():
-    master.mav.command_long_send(
-        master.target_system, master.target_component,
-        mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL, 0,
-        getattr(mavutil.mavlink, "MAVLINK_MSG_ID_" + msg_name),
-        rate_us, 0, 0, 0, 0, 0)
-
-# ---------------------------------------------------------------------------
-# UDP sockets
-# ---------------------------------------------------------------------------
-tx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)   # telemetry out
-rx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)   # commands in
-rx_sock.bind((UDP_RX_IP, UDP_RX_PORT))
-rx_sock.setblocking(False)
-print("Telemetry  -> UDP %s:%d" % (UDP_TX_IP, UDP_TX_PORT))
-print("Commands   <- UDP %s:%d" % (UDP_RX_IP, UDP_RX_PORT))
-
-# ---------------------------------------------------------------------------
-# Telemetry state
-# ---------------------------------------------------------------------------
-x = y = z = None
-roll = pitch = yaw = None
-battery = 100          # assumed until a SYS_STATUS arrives
-voltage = 0.0
-current = 0.0
-vib_x = vib_y = vib_z = 0.0
-flight_mode = "UNKNOWN"
-armed = 0
-satellites = -1        # -1 = unknown (receiver treats it as "no satellite data")
-gps_lat = gps_lon = gps_alt = 0.0   # keep 0 until first GPS fix
-
-counter = 0
-last_print = time.time()
+def build_parser():
+    """Argument parser mirroring the CLI style of udp_simulator.py."""
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--port", type=str, default=PORT,
+                   help="serial port (default %s)" % PORT)
+    p.add_argument("--baud", type=int, default=BAUD,
+                   help="serial baud rate (default %d)" % BAUD)
+    p.add_argument("--firmware", choices=sorted(MODE_TABLES), default=FIRMWARE,
+                   help="firmware whose flight-mode numbers to send "
+                        "(default %s)" % FIRMWARE)
+    p.add_argument("--ip", type=str, default=UDP_TX_IP,
+                   help="UDP host (default 127.0.0.1)")
+    p.add_argument("--tx-port", type=int, default=UDP_TX_PORT,
+                   help="telemetry OUT port, where Unity listens "
+                        "(default %d)" % UDP_TX_PORT)
+    p.add_argument("--rx-port", type=int, default=UDP_RX_PORT,
+                   help="command IN port, where Unity sends LAND/modes "
+                        "(default %d)" % UDP_RX_PORT)
+    return p
 
 
-def handle_command(cmd):
-    """Execute one plain-text command received over the command UDP port."""
+def handle_command(master, mode_name_to_id, cmd):
+    """Execute one plain-text command received over the command UDP port.
+
+    `master` is the active pymavlink connection; `mode_name_to_id` maps
+    flight-mode names (e.g. "LOITER") to the firmware's custom_mode number.
+    Both are passed in so this is testable without hardware.
+    """
     cmd = (cmd or "").strip().upper()
     if not cmd:
         return
@@ -147,105 +142,156 @@ def handle_command(cmd):
             mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, 0,
             0, 21196, 0, 0, 0, 0, 0)
 
-    elif cmd in MODE_NAME_TO_ID:
+    elif cmd in mode_name_to_id:
         # MAV_CMD_DO_SET_MODE with the firmware-specific custom mode number.
         master.mav.command_long_send(
             master.target_system, master.target_component,
             mavutil.mavlink.MAV_CMD_DO_SET_MODE, 0,
             mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
-            MODE_NAME_TO_ID[cmd], 0, 0, 0, 0, 0)
+            mode_name_to_id[cmd], 0, 0, 0, 0, 0)
 
     else:
         print("Unknown command:", cmd)
 
 
-def drain_commands():
+def drain_commands(rx_sock, master, mode_name_to_id):
     """Accept every queued UDP command datagram (non-blocking)."""
     while True:
         try:
             data, _ = rx_sock.recvfrom(256)
         except BlockingIOError:
             return
-        handle_command(data.decode("utf-8", "replace"))
+        handle_command(master, mode_name_to_id,
+                       data.decode("utf-8", "replace"))
 
 
-# ---------------------------------------------------------------------------
-# Main loop: poll MAVLink (with a short timeout) and drain UDP commands.
-# ---------------------------------------------------------------------------
-try:
-    while True:
-        msg = master.recv_match(blocking=True, timeout=0.05)
-        if not msg:
-            drain_commands()
-            continue
+def main():
+    args = build_parser().parse_args()
+    firmware = args.firmware.upper()
+    mode_name_to_id = {name: num for num, name in MODE_TABLES[firmware].items()}
 
-        msg_type = msg.get_type()
+    print("Connecting...")
+    master = mavutil.mavlink_connection(args.port, baud=args.baud)
+    master.wait_heartbeat()
+    print("Connected! (system %d, component %d)"
+          % (master.target_system, master.target_component))
 
-        # ---- LOCAL POSITION (NO GPS) ----
-        if msg_type == 'LOCAL_POSITION_NED':
-            x = msg.x
-            y = msg.y
-            z = -msg.z                       # invert Z (down -> up) for Unity
+    # Request the telemetry streams Unity consumes.
+    for msg_name, rate_us in MESSAGE_RATES_US.items():
+        master.mav.command_long_send(
+            master.target_system, master.target_component,
+            mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL, 0,
+            getattr(mavutil.mavlink, "MAVLINK_MSG_ID_" + msg_name),
+            rate_us, 0, 0, 0, 0, 0)
 
-        # ---- ATTITUDE ----
-        elif msg_type == 'ATTITUDE':
-            roll = math.degrees(msg.roll)
-            pitch = math.degrees(msg.pitch)
-            yaw = math.degrees(msg.yaw)
+    # -----------------------------------------------------------------------
+    # UDP sockets
+    # -----------------------------------------------------------------------
+    tx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)   # telemetry out
+    rx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)   # commands in
+    rx_sock.bind((args.ip, args.rx_port))
+    rx_sock.setblocking(False)
+    print("Telemetry  -> UDP %s:%d" % (args.ip, args.tx_port))
+    print("Commands   <- UDP %s:%d" % (args.ip, args.rx_port))
 
-        # ---- BATTERY / ELECTRICAL ----
-        elif msg_type == 'SYS_STATUS':
-            if msg.battery_remaining != -1:
-                battery = msg.battery_remaining
-            if msg.voltage_battery != 0:     # 0 = sensor unknown, keep last
-                voltage = msg.voltage_battery / 1000.0     # mV -> V
-            if msg.current_battery != 0:     # 0 = sensor unknown, keep last
-                current = msg.current_battery / 100.0      # cA -> A
+    # -----------------------------------------------------------------------
+    # Telemetry state
+    # -----------------------------------------------------------------------
+    x = y = z = None
+    roll = pitch = yaw = None
+    battery = 100          # assumed until a SYS_STATUS arrives
+    voltage = 0.0
+    current = 0.0
+    vib_x = vib_y = vib_z = 0.0
+    flight_mode = "UNKNOWN"
+    armed = 0
+    satellites = -1        # -1 = unknown (receiver treats it as "no satellite data")
+    gps_lat = gps_lon = gps_alt = 0.0   # keep 0 until first GPS fix
 
-        # ---- VIBRATION (used by Unity auto-land + gradient bars) ----
-        elif msg_type == 'VIBRATION' and msg.vibration_x is not None:
-            vib_x, vib_y, vib_z = msg.vibration_x, msg.vibration_y, msg.vibration_z
+    counter = 0
+    last_print = time.time()
 
-        # ---- FLIGHT MODE / ARMED ----
-        elif msg_type == 'HEARTBEAT':
-            armed = 1 if (msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED) else 0
-            flight_mode = MODE_TABLES[FIRMWARE].get(msg.custom_mode, str(msg.custom_mode))
+    # -----------------------------------------------------------------------
+    # Main loop: poll MAVLink (with a short timeout) and drain UDP commands.
+    # -----------------------------------------------------------------------
+    try:
+        while True:
+            msg = master.recv_match(blocking=True, timeout=0.05)
+            if not msg:
+                drain_commands(rx_sock, master, mode_name_to_id)
+                continue
 
-        # ---- GPS ----
-        elif msg_type == 'GPS_RAW_INT' and msg.fix_type >= 3:
-            gps_lat = msg.lat / 1e7          # 1e-7 deg -> deg
-            gps_lon = msg.lon / 1e7
-            gps_alt = msg.alt / 1000.0       # mm -> m (MSL)
-            satellites = msg.satellites_visible
+            msg_type = msg.get_type()
 
-        drain_commands()
+            # ---- LOCAL POSITION (NO GPS) ----
+            if msg_type == 'LOCAL_POSITION_NED':
+                x = msg.x
+                y = msg.y
+                z = -msg.z                       # invert Z (down -> up) for Unity
 
-        # ---- SEND WHEN ALL 3D + ATTITUDE KNOWN ----
-        if (x is not None and y is not None and z is not None and
-                roll is not None and pitch is not None and yaw is not None):
+            # ---- ATTITUDE ----
+            elif msg_type == 'ATTITUDE':
+                roll = math.degrees(msg.roll)
+                pitch = math.degrees(msg.pitch)
+                yaw = math.degrees(msg.yaw)
 
-            message = "%s,%s,%s,%s,%s,%s,1,%s,%s,%s,%s,%.3f,%s,%s,%s,%s,%s,%s,%s,%s" % (
-                x, y, z, roll, pitch, yaw,
-                battery,
-                vib_x, vib_y, vib_z,
-                time.time(),                 # unix seconds at send
-                flight_mode, armed,
-                "%.2f" % voltage, "%.2f" % current,
-                satellites,
-                gps_lat, gps_lon, gps_alt,
-            )
+            # ---- BATTERY / ELECTRICAL ----
+            elif msg_type == 'SYS_STATUS':
+                if msg.battery_remaining != -1:
+                    battery = msg.battery_remaining
+                if msg.voltage_battery != 0:     # 0 = sensor unknown, keep last
+                    voltage = msg.voltage_battery / 1000.0     # mV -> V
+                if msg.current_battery != 0:     # 0 = sensor unknown, keep last
+                    current = msg.current_battery / 100.0      # cA -> A
 
-            tx_sock.sendto(message.encode(), (UDP_TX_IP, UDP_TX_PORT))
-            counter += 1
+            # ---- VIBRATION (used by Unity auto-land + gradient bars) ----
+            elif msg_type == 'VIBRATION' and msg.vibration_x is not None:
+                vib_x, vib_y, vib_z = msg.vibration_x, msg.vibration_y, msg.vibration_z
 
-        # ---- RATE PRINT ----
-        if time.time() - last_print > 1:
-            print("Sending UDP packets: %d/sec" % counter)
-            counter = 0
-            last_print = time.time()
+            # ---- FLIGHT MODE / ARMED ----
+            elif msg_type == 'HEARTBEAT':
+                armed = 1 if (msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED) else 0
+                flight_mode = MODE_TABLES[firmware].get(msg.custom_mode, str(msg.custom_mode))
 
-except KeyboardInterrupt:
-    print("\nShutting down...")
-finally:
-    tx_sock.close()
-    rx_sock.close()
+            # ---- GPS ----
+            elif msg_type == 'GPS_RAW_INT' and msg.fix_type >= 3:
+                gps_lat = msg.lat / 1e7          # 1e-7 deg -> deg
+                gps_lon = msg.lon / 1e7
+                gps_alt = msg.alt / 1000.0       # mm -> m (MSL)
+                satellites = msg.satellites_visible
+
+            drain_commands(rx_sock, master, mode_name_to_id)
+
+            # ---- SEND WHEN ALL 3D + ATTITUDE KNOWN ----
+            if (x is not None and y is not None and z is not None and
+                    roll is not None and pitch is not None and yaw is not None):
+
+                message = "%s,%s,%s,%s,%s,%s,1,%s,%s,%s,%s,%.3f,%s,%s,%s,%s,%s,%s,%s,%s" % (
+                    x, y, z, roll, pitch, yaw,
+                    battery,
+                    vib_x, vib_y, vib_z,
+                    time.time(),                 # unix seconds at send
+                    flight_mode, armed,
+                    "%.2f" % voltage, "%.2f" % current,
+                    satellites,
+                    gps_lat, gps_lon, gps_alt,
+                )
+
+                tx_sock.sendto(message.encode(), (args.ip, args.tx_port))
+                counter += 1
+
+            # ---- RATE PRINT ----
+            if time.time() - last_print > 1:
+                print("Sending UDP packets: %d/sec" % counter)
+                counter = 0
+                last_print = time.time()
+
+    except KeyboardInterrupt:
+        print("\nShutting down...")
+    finally:
+        tx_sock.close()
+        rx_sock.close()
+
+
+if __name__ == "__main__":
+    main()

@@ -39,11 +39,23 @@ Tools/
 ## Run
 
 1. `pip install -r Tools/MAVLink/requirements.txt`
-2. `python Tools/MAVLink/mavlink_bridge.py` (adjust `PORT`/`BAUD` at the top,
-   and `FIRMWARE = "COPTER"`/`"PLANE"` if you fly a plane)
+2. `python Tools/MAVLink/mavlink_bridge.py` — defaults to `COM3` @ 57600,
+   ArduCopter. Override on the command line:
+   `python Tools/MAVLink/mavlink_bridge.py --port COM7 --baud 115200 --firmware PLANE`
 3. Open `Unity/` in Unity and play `SampleScene`
 4. Bridge console shows `Sending UDP packets: N/sec` when telemetry flows; the
    dashboard shows **Connected** in the top-left
+
+## Test
+
+```bash
+cd Tools/MAVLink
+.venv\Scripts\python -m unittest test_mavlink -v
+```
+
+Covers the shared 20-field CSV contract (field count, send-timestamp as real
+unix time, and every field's index as parsed by `DroneDataReceiver.cs`) plus
+bridge command dispatch — no drone hardware needed.
 
 ## No drone? Use the simulator
 
@@ -119,5 +131,5 @@ Flight-mode numbers are resolved through the `FIRMWARE` table at the top of
 
 - Real GPS fields rely on a GPS receiver + `GPS_RAW_INT`; without one,
   satellites stay `-1` and the signal bars fall back to a latency proxy.
-- Telegram data rate is set by the message intervals requested in the bridge
+- Telemetry data rate is set by the message intervals requested in the bridge
   (10 Hz position/attitude/vibration, 5 Hz battery, 1 Hz GPS).

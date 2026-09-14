@@ -101,7 +101,7 @@ class SimDrone:
             roll, pitch, yaw,
             int(round(self.battery)),
             vib, vib, vib,                    # vibration on all three axes
-            t,                                # "unix seconds" (latency ~0)
+            time.time(),                      # unix seconds at send (latency ~0)
             mode, self.armed,
             voltage, current,
             lat, lon, z + 200.0,              # gps_alt (arbitrary MSL offset)

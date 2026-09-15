@@ -76,13 +76,13 @@ behaviours work. It listens on the command port too, so LAND/mode buttons do som
 
 ## Map view
 
-Map View renders live OpenStreetMap raster tiles behind the GPS track. Drag to
-pan, use the mouse wheel or the `-` / `+` controls to zoom, and use the target
-control to recenter on the aircraft. The first view requires internet access;
-only visible tiles are requested and they are cached locally for seven days.
-OpenStreetMap attribution remains visible in the viewport. The tile URL and
-application user agent are configurable on `DroneDashboardUI`, allowing a
-self-hosted OSM-compatible tile service to be used instead.
+Map View renders a live raster basemap behind the GPS track. Drag to pan, use
+the mouse wheel or the `-` / `+` controls to zoom, and use the target control
+to recenter on the aircraft. The layers control switches between OpenStreetMap
+street tiles, Esri World Imagery, and a hybrid imagery/labels view. Only visible
+tiles are requested. OSM tiles are cached locally for seven days; Esri imagery
+is kept in memory only. Attribution updates with the active provider. Tile URLs
+and the application user agent are configurable on `DroneDashboardUI`.
 
 ## UDP protocol
 

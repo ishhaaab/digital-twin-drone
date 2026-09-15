@@ -77,6 +77,14 @@ public static class DroneWorldGrid
         filter.sharedMesh = mesh;
     }
 
+    public static void SetVisible(bool visible)
+    {
+        GameObject gridObject = GameObject.Find(GridName);
+        if (gridObject == null) return;
+        MeshRenderer renderer = gridObject.GetComponent<MeshRenderer>();
+        if (renderer != null) renderer.enabled = visible;
+    }
+
     static void AddQuad(List<Vector3> vertices, List<Color> colors, List<int> triangles,
         Vector3 a, Vector3 b, Vector3 c, Vector3 d, Color color)
     {

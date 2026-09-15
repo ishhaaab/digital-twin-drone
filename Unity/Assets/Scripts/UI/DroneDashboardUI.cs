@@ -42,6 +42,8 @@ public class DroneDashboardUI : MonoBehaviour
     [Header("Map Tiles")]
     [Range(3, 19)] public int mapZoom = 19;
     public string mapTileUrlTemplate = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+    public string satelliteMapTileUrlTemplate = "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+    public string hybridMapLabelsUrlTemplate = "https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}";
     public string mapTileUserAgent = "DigitalTwinDrone/1.0 (+https://github.com/ishhaaab/digital-twin-drone)";
 
     // Palette — single source of truth is DroneUIFX.AERO_*
@@ -84,6 +86,10 @@ public class DroneDashboardUI : MonoBehaviour
     GameObject mapViewLayer;
     GameObject cameraModesOverlay;
     GameObject mapControlsOverlay;
+    GameObject layerPopover;
+    GameObject layer3DOptions;
+    GameObject layerMapOptions;
+    GameObject worldAxesOverlay;
     GameObject settingsPanel;
     readonly List<DroneUIFX.AeroButtonHoverFX> cameraModeStyles = new List<DroneUIFX.AeroButtonHoverFX>();
     readonly List<DroneUIFX.AeroButtonHoverFX> viewModeStyles = new List<DroneUIFX.AeroButtonHoverFX>();
@@ -91,10 +97,14 @@ public class DroneDashboardUI : MonoBehaviour
     DroneUIFX.AeroButtonHoverFX topMapStyle;
     DroneUIFX.AeroButtonHoverFX settingsStyle;
     DroneUIFX.AeroButtonHoverFX layersStyle;
-    DroneUIFX.AeroButtonHoverFX lightingStyle;
     DroneUIFX.AeroButtonHoverFX fullscreenStyle;
-    bool pathVisible = true;
-    bool lightingEnabled = true;
+    DroneUIFX.AeroButtonHoverFX gridLayerStyle;
+    DroneUIFX.AeroButtonHoverFX trailLayerStyle;
+    readonly List<DroneUIFX.AeroButtonHoverFX> mapStyleOptions = new List<DroneUIFX.AeroButtonHoverFX>();
+    bool layerPopoverOpen;
+    bool gridVisible = true;
+    bool trailVisible = true;
+    bool showingMap;
     bool viewportFullscreen;
     Vector2 viewportAnchorMin, viewportAnchorMax, viewportOffsetMin, viewportOffsetMax;
     int viewportSiblingIndex;
@@ -744,6 +754,8 @@ public class DroneDashboardUI : MonoBehaviour
         mapTileLayer = plot.AddComponent<OpenStreetMapTileLayer>();
         mapTileLayer.zoom = mapZoom;
         mapTileLayer.tileUrlTemplate = mapTileUrlTemplate;
+        mapTileLayer.satelliteTileUrlTemplate = satelliteMapTileUrlTemplate;
+        mapTileLayer.hybridLabelsTileUrlTemplate = hybridMapLabelsUrlTemplate;
         mapTileLayer.userAgent = mapTileUserAgent;
         mapTileLayer.tileRoot = (RectTransform)tileRoot.transform;
         mapTileLayer.overlay = mapView;
@@ -813,7 +825,7 @@ public class DroneDashboardUI : MonoBehaviour
 
     void CreateMapAttribution(Transform parent)
     {
-        var go = new GameObject("OpenStreetMapAttribution", typeof(RectTransform), typeof(Image), typeof(Button));
+        var go = new GameObject("BasemapAttribution", typeof(RectTransform), typeof(Image), typeof(Button));
         go.transform.SetParent(parent, false);
         var image = go.GetComponent<Image>();
         image.sprite = DroneUIFX.RoundedRectSprite;
@@ -821,7 +833,7 @@ public class DroneDashboardUI : MonoBehaviour
         image.color = new Color(BG.r, BG.g, BG.b, 0.86f);
         var button = go.GetComponent<Button>();
         button.targetGraphic = image;
-        button.onClick.AddListener(() => Application.OpenURL("https://www.openstreetmap.org/copyright"));
+        button.onClick.AddListener(() => Application.OpenURL(mapTileLayer.AttributionUrl));
         var rt = (RectTransform)go.transform;
         rt.anchorMin = rt.anchorMax = new Vector2(1, 0);
         rt.pivot = new Vector2(1, 0);
@@ -837,6 +849,7 @@ public class DroneDashboardUI : MonoBehaviour
         text.alignment = TextAlignmentOptions.Center;
         text.raycastTarget = false;
         Stretch(text.rectTransform);
+        mapTileLayer.attributionText = text;
     }
 
     TextMeshProUGUI CreateMapReadoutText(Transform parent, string initial, TextAlignmentOptions alignment)
@@ -936,7 +949,7 @@ public class DroneDashboardUI : MonoBehaviour
         toolsRT.anchorMin = toolsRT.anchorMax = new Vector2(1f, 0.5f);
         toolsRT.pivot = new Vector2(1f, 0.5f);
         toolsRT.anchoredPosition = new Vector2(-10, 0);
-        toolsRT.sizeDelta = new Vector2(38, 164);
+        toolsRT.sizeDelta = new Vector2(38, 116);
         var toolsVL = tools.AddComponent<VerticalLayoutGroup>();
         toolsVL.padding = new RectOffset(2, 2, 2, 2);
         toolsVL.spacing = 5;
@@ -952,16 +965,146 @@ public class DroneDashboardUI : MonoBehaviour
                 SetViewportMode(DroneViewportCameraController.ViewMode.Follow, 0);
             }
         }, false, true);
-        layersStyle = OverlayIconButton(tools, DroneUIFX.IconType.Layers, ToggleLayers, false, true);
-        layersStyle.SetSelected(true);
-        lightingStyle = OverlayIconButton(tools, DroneUIFX.IconType.Lighting, ToggleLighting, true, true);
-        lightingStyle.SetSelected(true);
+        layersStyle = OverlayIconButton(tools, DroneUIFX.IconType.Layers, ToggleLayerPopover, false, true);
         fullscreenStyle = OverlayIconButton(tools, DroneUIFX.IconType.Fullscreen, ToggleViewportFullscreen, false, true);
+
+        BuildLayerPopover(center);
+        BuildWorldAxes(center);
 
         BuildViewportGpsReadout(center);
 
         BuildSettingsPanel(center);
         SetMapView(false);
+    }
+
+    void BuildLayerPopover(GameObject center)
+    {
+        layerPopover = new GameObject("LayerPopover", typeof(RectTransform), typeof(Image));
+        layerPopover.transform.SetParent(center.transform, false);
+        var image = layerPopover.GetComponent<Image>();
+        image.color = new Color(CARD2.r, CARD2.g, CARD2.b, 0.97f);
+        StylePanel(layerPopover);
+        var rt = (RectTransform)layerPopover.transform;
+        rt.anchorMin = rt.anchorMax = new Vector2(1f, 0.5f);
+        rt.pivot = new Vector2(1f, 0.5f);
+        rt.anchoredPosition = new Vector2(-54, 0);
+        rt.sizeDelta = new Vector2(196, 112);
+
+        layer3DOptions = CreateLayerOptions(layerPopover.transform, "3DLayers", "3D LAYERS");
+        gridLayerStyle = OverlayChip(layer3DOptions, "WORLD GRID", 174f, true, ToggleGrid, true);
+        trailLayerStyle = OverlayChip(layer3DOptions, "FLIGHT TRAIL", 174f, true, ToggleTrail, true);
+
+        layerMapOptions = CreateLayerOptions(layerPopover.transform, "MapLayers", "MAP STYLE");
+        mapStyleOptions.Clear();
+        mapStyleOptions.Add(OverlayChip(layerMapOptions, "STREET", 174f, true,
+            () => SetBasemap(OpenStreetMapTileLayer.BasemapStyle.Street, 0), true));
+        mapStyleOptions.Add(OverlayChip(layerMapOptions, "SATELLITE", 174f, false,
+            () => SetBasemap(OpenStreetMapTileLayer.BasemapStyle.Satellite, 1), true));
+        mapStyleOptions.Add(OverlayChip(layerMapOptions, "HYBRID", 174f, false,
+            () => SetBasemap(OpenStreetMapTileLayer.BasemapStyle.Hybrid, 2), true));
+
+        layerMapOptions.SetActive(false);
+        layerPopover.SetActive(false);
+    }
+
+    GameObject CreateLayerOptions(Transform parent, string name, string title)
+    {
+        var content = new GameObject(name, typeof(RectTransform));
+        content.transform.SetParent(parent, false);
+        Stretch((RectTransform)content.transform, 1f);
+        var layout = content.AddComponent<VerticalLayoutGroup>();
+        layout.padding = new RectOffset(10, 10, 8, 8);
+        layout.spacing = 5;
+        layout.childAlignment = TextAnchor.UpperCenter;
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = true;
+        layout.childForceExpandHeight = false;
+
+        var titleGO = new GameObject("Title", typeof(RectTransform));
+        titleGO.transform.SetParent(content.transform, false);
+        titleGO.AddComponent<LayoutElement>().preferredHeight = 18;
+        var titleText = titleGO.AddComponent<TextMeshProUGUI>();
+        titleText.text = title;
+        titleText.fontSize = 9;
+        titleText.fontStyle = FontStyles.Bold;
+        titleText.characterSpacing = 8;
+        titleText.color = TXT_DIM;
+        titleText.alignment = TextAlignmentOptions.MidlineLeft;
+        titleText.raycastTarget = false;
+        return content;
+    }
+
+    void BuildWorldAxes(GameObject center)
+    {
+        worldAxesOverlay = new GameObject("WorldAxes", typeof(RectTransform), typeof(Image));
+        worldAxesOverlay.transform.SetParent(center.transform, false);
+        var image = worldAxesOverlay.GetComponent<Image>();
+        image.color = new Color(BG.r, BG.g, BG.b, 0.78f);
+        image.raycastTarget = false;
+        StylePanel(worldAxesOverlay);
+        var rt = (RectTransform)worldAxesOverlay.transform;
+        rt.anchorMin = rt.anchorMax = new Vector2(1f, 0f);
+        rt.pivot = new Vector2(1f, 0f);
+        rt.anchoredPosition = new Vector2(-12, 12);
+        rt.sizeDelta = new Vector2(98, 86);
+
+        Vector2 origin = new Vector2(35, 22);
+        CreateAxisArrow(worldAxesOverlay.transform, "X", origin, new Vector2(78, 22), new Color(0.95f, 0.28f, 0.28f));
+        CreateAxisArrow(worldAxesOverlay.transform, "Y", origin, new Vector2(35, 68), new Color(0.25f, 0.90f, 0.48f));
+        CreateAxisArrow(worldAxesOverlay.transform, "Z", origin, new Vector2(15, 43), new Color(0.28f, 0.55f, 1f));
+
+        var originGO = new GameObject("Origin", typeof(RectTransform), typeof(Image));
+        originGO.transform.SetParent(worldAxesOverlay.transform, false);
+        var originImage = originGO.GetComponent<Image>();
+        originImage.sprite = DroneUIFX.CircleSprite;
+        originImage.color = TXT;
+        originImage.raycastTarget = false;
+        var originRT = originImage.rectTransform;
+        originRT.anchorMin = originRT.anchorMax = Vector2.zero;
+        originRT.pivot = new Vector2(0.5f, 0.5f);
+        originRT.anchoredPosition = origin;
+        originRT.sizeDelta = new Vector2(5, 5);
+    }
+
+    void CreateAxisArrow(Transform parent, string label, Vector2 start, Vector2 end, Color color)
+    {
+        Vector2 direction = (end - start).normalized;
+        Vector2 normal = new Vector2(-direction.y, direction.x);
+        CreateAxisSegment(parent, label + "Axis", start, end, 2.5f, color);
+        CreateAxisSegment(parent, label + "ArrowA", end, end - direction * 7f + normal * 4f, 2.5f, color);
+        CreateAxisSegment(parent, label + "ArrowB", end, end - direction * 7f - normal * 4f, 2.5f, color);
+
+        var labelGO = new GameObject(label + "Label", typeof(RectTransform));
+        labelGO.transform.SetParent(parent, false);
+        var text = labelGO.AddComponent<TextMeshProUGUI>();
+        text.text = label;
+        text.fontSize = 10;
+        text.fontStyle = FontStyles.Bold;
+        text.color = color;
+        text.alignment = TextAlignmentOptions.Center;
+        text.raycastTarget = false;
+        var rt = text.rectTransform;
+        rt.anchorMin = rt.anchorMax = Vector2.zero;
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = end + direction * 7f;
+        rt.sizeDelta = new Vector2(16, 14);
+    }
+
+    void CreateAxisSegment(Transform parent, string name, Vector2 start, Vector2 end, float width, Color color)
+    {
+        var go = new GameObject(name, typeof(RectTransform), typeof(Image));
+        go.transform.SetParent(parent, false);
+        var image = go.GetComponent<Image>();
+        image.color = color;
+        image.raycastTarget = false;
+        var rt = image.rectTransform;
+        rt.anchorMin = rt.anchorMax = Vector2.zero;
+        rt.pivot = new Vector2(0f, 0.5f);
+        rt.anchoredPosition = start;
+        Vector2 delta = end - start;
+        rt.sizeDelta = new Vector2(delta.magnitude, width);
+        rt.localEulerAngles = new Vector3(0, 0, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg);
     }
 
     void BuildViewportGpsReadout(GameObject center)
@@ -1147,6 +1290,8 @@ public class DroneDashboardUI : MonoBehaviour
 
     void SetMapView(bool showMap)
     {
+        showingMap = showMap;
+        CloseLayerPopover();
         if (droneViewLayer != null) droneViewLayer.SetActive(!showMap);
         if (mapViewLayer != null) mapViewLayer.SetActive(showMap);
         if (showMap && mapView != null)
@@ -1158,6 +1303,7 @@ public class DroneDashboardUI : MonoBehaviour
         }
         if (cameraModesOverlay != null) cameraModesOverlay.SetActive(!showMap);
         if (mapControlsOverlay != null) mapControlsOverlay.SetActive(showMap);
+        if (worldAxesOverlay != null) worldAxesOverlay.SetActive(!showMap);
         if (viewModeStyles.Count >= 2)
         {
             viewModeStyles[0]?.SetSelected(!showMap);
@@ -1168,30 +1314,58 @@ public class DroneDashboardUI : MonoBehaviour
         Debug.Log("[DashboardUI] View: " + (showMap ? "MAP" : "3D"));
     }
 
-    void ToggleLayers()
+    void ToggleLayerPopover()
     {
-        pathVisible = !pathVisible;
-        mapView?.SetPathVisible(pathVisible);
+        if (layerPopover == null) return;
+        layerPopoverOpen = !layerPopoverOpen;
+        layer3DOptions?.SetActive(!showingMap);
+        layerMapOptions?.SetActive(showingMap);
+        ((RectTransform)layerPopover.transform).sizeDelta = new Vector2(196, showingMap ? 147 : 112);
+        layerPopover.SetActive(layerPopoverOpen);
+        if (layerPopoverOpen) layerPopover.transform.SetAsLastSibling();
+        layersStyle?.SetSelected(layerPopoverOpen);
+    }
+
+    void CloseLayerPopover()
+    {
+        layerPopoverOpen = false;
+        if (layerPopover != null) layerPopover.SetActive(false);
+        layersStyle?.SetSelected(false);
+    }
+
+    void ToggleGrid()
+    {
+        gridVisible = !gridVisible;
+        DroneWorldGrid.SetVisible(gridVisible);
+        gridLayerStyle?.SetSelected(gridVisible);
+        Debug.Log("[DashboardUI] World grid: " + (gridVisible ? "ON" : "OFF"));
+    }
+
+    void ToggleTrail()
+    {
+        trailVisible = !trailVisible;
         DroneTrail[] trails = FindObjectsByType<DroneTrail>(FindObjectsSortMode.None);
         for (int i = 0; i < trails.Length; i++)
         {
             var renderer = trails[i].GetComponent<LineRenderer>();
-            if (renderer != null) renderer.enabled = pathVisible;
+            if (renderer != null) renderer.enabled = trailVisible;
         }
-        layersStyle?.SetSelected(pathVisible);
-        Debug.Log("[DashboardUI] Layers: " + (pathVisible ? "ON" : "OFF"));
+        trailLayerStyle?.SetSelected(trailVisible);
+        Debug.Log("[DashboardUI] Flight trail: " + (trailVisible ? "ON" : "OFF"));
     }
 
-    void ToggleLighting()
+    void SetBasemap(OpenStreetMapTileLayer.BasemapStyle style, int selectedIndex)
     {
-        lightingEnabled = DroneSkyEnvironment.ToggleLighting();
-        lightingStyle?.SetSelected(lightingEnabled);
-        Debug.Log("[DashboardUI] Lighting: " + (lightingEnabled ? "ON" : "OFF"));
+        mapTileLayer?.SetBasemap(style);
+        for (int i = 0; i < mapStyleOptions.Count; i++)
+            mapStyleOptions[i]?.SetSelected(i == selectedIndex);
+        Debug.Log("[DashboardUI] Basemap: " + style);
     }
 
     void ToggleSettingsPanel()
     {
         if (settingsPanel == null) return;
+        CloseLayerPopover();
         bool show = !settingsPanel.activeSelf;
         settingsPanel.SetActive(show);
         settingsStyle?.SetSelected(show);

@@ -8,18 +8,30 @@ using UnityEngine.EventSystems;
 using UnityEngine.Networking;
 using UnityEngine.UI;
 
-/// Interactive OpenStreetMap raster layer for the dashboard map viewport.
-/// Only visible tiles are requested and each response is cached for seven days.
+/// Interactive raster basemap layer for the dashboard map viewport.
+/// Only visible tiles are requested. OSM street tiles are cached for seven days;
+/// Esri imagery remains in memory and is not exported for offline use.
 [RequireComponent(typeof(RectTransform), typeof(Image), typeof(RectMask2D))]
 public sealed class OpenStreetMapTileLayer : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler, IScrollHandler
 {
+    public enum BasemapStyle
+    {
+        Street,
+        Satellite,
+        Hybrid
+    }
+
     public RectTransform tileRoot;
     public TextMeshProUGUI statusText;
+    public TextMeshProUGUI attributionText;
     public DroneMapView overlay;
 
     [Range(3, 19)] public int zoom = 19;
     public string tileUrlTemplate = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+    public string satelliteTileUrlTemplate = "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+    public string hybridLabelsTileUrlTemplate = "https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}";
     public string userAgent = "DigitalTwinDrone/1.0 (+https://github.com/ishhaaab/digital-twin-drone)";
+    public BasemapStyle basemapStyle = BasemapStyle.Street;
 
     const int TileSize = 256;
     const int MinZoom = 3;
@@ -34,6 +46,8 @@ public sealed class OpenStreetMapTileLayer : MonoBehaviour, IBeginDragHandler, I
         public int y;
         public RawImage image;
         public Texture2D texture;
+        public RawImage referenceImage;
+        public Texture2D referenceTexture;
     }
 
     readonly Dictionary<string, TileSlot> tiles = new Dictionary<string, TileSlot>();
@@ -47,8 +61,14 @@ public sealed class OpenStreetMapTileLayer : MonoBehaviour, IBeginDragHandler, I
     bool refreshQueued;
     int pendingRequests;
     int failedRequests;
+    int tileGeneration;
 
     public bool HasCenter => hasCenter;
+    public string AttributionUrl => basemapStyle == BasemapStyle.Street
+        ? "https://www.openstreetmap.org/copyright"
+        : basemapStyle == BasemapStyle.Satellite
+            ? "https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9"
+            : "https://www.arcgis.com/home/item.html?id=86265e5a4bbb4187a59719cf134e0018";
 
     public float MetersPerPixel
     {
@@ -67,6 +87,7 @@ public sealed class OpenStreetMapTileLayer : MonoBehaviour, IBeginDragHandler, I
         var hitArea = GetComponent<Image>();
         hitArea.color = new Color(0f, 0f, 0f, 0f);
         hitArea.raycastTarget = true;
+        UpdateAttribution();
     }
 
     void OnEnable()
@@ -132,6 +153,16 @@ public sealed class OpenStreetMapTileLayer : MonoBehaviour, IBeginDragHandler, I
 
     public void RefreshTiles()
     {
+        QueueRefresh();
+    }
+
+    public void SetBasemap(BasemapStyle style)
+    {
+        if (basemapStyle == style) return;
+        basemapStyle = style;
+        ClearTiles();
+        UpdateAttribution();
+        UpdateStatus();
         QueueRefresh();
     }
 
@@ -228,15 +259,33 @@ public sealed class OpenStreetMapTileLayer : MonoBehaviour, IBeginDragHandler, I
         rect.sizeDelta = new Vector2(TileSize, TileSize);
 
         var slot = new TileSlot { key = key, x = layoutX, y = y, image = image };
+        if (basemapStyle == BasemapStyle.Hybrid)
+        {
+            var reference = new GameObject("Reference", typeof(RectTransform), typeof(RawImage));
+            reference.transform.SetParent(go.transform, false);
+            var referenceImage = reference.GetComponent<RawImage>();
+            referenceImage.color = Color.clear;
+            referenceImage.raycastTarget = false;
+            RectTransform referenceRect = referenceImage.rectTransform;
+            referenceRect.anchorMin = Vector2.zero;
+            referenceRect.anchorMax = Vector2.one;
+            referenceRect.offsetMin = Vector2.zero;
+            referenceRect.offsetMax = Vector2.zero;
+            slot.referenceImage = referenceImage;
+        }
         tiles.Add(key, slot);
         PositionTile(slot);
-        StartCoroutine(LoadTile(slot, requestX));
+        int generation = tileGeneration;
+        string baseTemplate = basemapStyle == BasemapStyle.Street ? tileUrlTemplate : satelliteTileUrlTemplate;
+        StartCoroutine(LoadTile(slot, requestX, baseTemplate, false, basemapStyle == BasemapStyle.Street, generation));
+        if (basemapStyle == BasemapStyle.Hybrid)
+            StartCoroutine(LoadTile(slot, requestX, hybridLabelsTileUrlTemplate, true, false, generation));
     }
 
-    IEnumerator LoadTile(TileSlot slot, int requestX)
+    IEnumerator LoadTile(TileSlot slot, int requestX, string urlTemplate, bool reference, bool useDiskCache, int generation)
     {
-        string cachePath = GetCachePath(zoom, requestX, slot.y);
-        bool hasCachedTile = TryLoadCachedTile(slot, cachePath);
+        string cachePath = useDiskCache ? GetCachePath(zoom, requestX, slot.y) : null;
+        bool hasCachedTile = useDiskCache && TryLoadCachedTile(slot, cachePath, reference);
         bool cacheIsFresh = hasCachedTile && DateTime.UtcNow - File.GetLastWriteTimeUtc(cachePath) < CacheLifetime;
         if (cacheIsFresh)
         {
@@ -246,7 +295,7 @@ public sealed class OpenStreetMapTileLayer : MonoBehaviour, IBeginDragHandler, I
 
         pendingRequests++;
         UpdateStatus();
-        string url = tileUrlTemplate
+        string url = urlTemplate
             .Replace("{z}", zoom.ToString())
             .Replace("{x}", requestX.ToString())
             .Replace("{y}", slot.y.ToString());
@@ -254,33 +303,37 @@ public sealed class OpenStreetMapTileLayer : MonoBehaviour, IBeginDragHandler, I
         {
             request.SetRequestHeader("User-Agent", userAgent);
             yield return request.SendWebRequest();
-            pendingRequests--;
+            if (generation != tileGeneration) yield break;
+            pendingRequests = Mathf.Max(0, pendingRequests - 1);
 
             if (request.result == UnityWebRequest.Result.Success)
             {
                 Texture2D texture = DownloadHandlerTexture.GetContent(request);
-                ApplyTexture(slot, texture);
-                try
+                ApplyTexture(slot, texture, reference);
+                if (useDiskCache)
                 {
-                    Directory.CreateDirectory(Path.GetDirectoryName(cachePath));
-                    File.WriteAllBytes(cachePath, request.downloadHandler.data);
-                }
-                catch (Exception e)
-                {
-                    Debug.LogWarning("[Map] Could not cache OSM tile: " + e.Message);
+                    try
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(cachePath));
+                        File.WriteAllBytes(cachePath, request.downloadHandler.data);
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.LogWarning("[Map] Could not cache OSM tile: " + e.Message);
+                    }
                 }
             }
             else
             {
                 failedRequests++;
                 if (!hasCachedTile)
-                    Debug.LogWarning($"[Map] OSM tile request failed ({request.responseCode}): {request.error}");
+                    Debug.LogWarning($"[Map] Tile request failed ({request.responseCode}): {request.error}");
             }
         }
         UpdateStatus();
     }
 
-    bool TryLoadCachedTile(TileSlot slot, string path)
+    bool TryLoadCachedTile(TileSlot slot, string path, bool reference)
     {
         if (!File.Exists(path)) return false;
         try
@@ -292,7 +345,7 @@ public sealed class OpenStreetMapTileLayer : MonoBehaviour, IBeginDragHandler, I
                 Destroy(texture);
                 return false;
             }
-            ApplyTexture(slot, texture);
+            ApplyTexture(slot, texture, reference);
             return true;
         }
         catch (Exception e)
@@ -302,19 +355,22 @@ public sealed class OpenStreetMapTileLayer : MonoBehaviour, IBeginDragHandler, I
         }
     }
 
-    void ApplyTexture(TileSlot slot, Texture2D texture)
+    void ApplyTexture(TileSlot slot, Texture2D texture, bool reference)
     {
-        if (slot.image == null)
+        RawImage image = reference ? slot.referenceImage : slot.image;
+        if (image == null)
         {
             if (texture != null) Destroy(texture);
             return;
         }
-        if (slot.texture != null && slot.texture != texture) Destroy(slot.texture);
-        slot.texture = texture;
+        Texture2D oldTexture = reference ? slot.referenceTexture : slot.texture;
+        if (oldTexture != null && oldTexture != texture) Destroy(oldTexture);
+        if (reference) slot.referenceTexture = texture;
+        else slot.texture = texture;
         texture.wrapMode = TextureWrapMode.Clamp;
         texture.filterMode = FilterMode.Bilinear;
-        slot.image.texture = texture;
-        slot.image.color = Color.white;
+        image.texture = texture;
+        image.color = Color.white;
     }
 
     void PositionTiles()
@@ -335,11 +391,14 @@ public sealed class OpenStreetMapTileLayer : MonoBehaviour, IBeginDragHandler, I
         if (!tiles.TryGetValue(key, out TileSlot slot)) return;
         tiles.Remove(key);
         if (slot.texture != null) Destroy(slot.texture);
+        if (slot.referenceTexture != null) Destroy(slot.referenceTexture);
         if (slot.image != null) Destroy(slot.image.gameObject);
     }
 
     void ClearTiles()
     {
+        tileGeneration++;
+        pendingRequests = 0;
         var keys = new List<string>(tiles.Keys);
         for (int i = 0; i < keys.Count; i++) RemoveTile(keys[i]);
         failedRequests = 0;
@@ -348,8 +407,11 @@ public sealed class OpenStreetMapTileLayer : MonoBehaviour, IBeginDragHandler, I
     void UpdateStatus()
     {
         if (statusText == null) return;
-        if (!hasCenter) statusText.text = "OPENSTREETMAP  /  WAITING FOR GPS";
-        else if (pendingRequests > 0) statusText.text = $"OPENSTREETMAP  /  LOADING {pendingRequests}";
+        string provider = basemapStyle == BasemapStyle.Street
+            ? "OPENSTREETMAP"
+            : basemapStyle == BasemapStyle.Satellite ? "ESRI WORLD IMAGERY" : "ESRI IMAGERY HYBRID";
+        if (!hasCenter) statusText.text = provider + "  /  WAITING FOR GPS";
+        else if (pendingRequests > 0) statusText.text = $"{provider}  /  LOADING {pendingRequests}";
         else if (failedRequests > 0)
         {
             bool hasCachedTiles = false;
@@ -360,10 +422,20 @@ public sealed class OpenStreetMapTileLayer : MonoBehaviour, IBeginDragHandler, I
                 break;
             }
             statusText.text = hasCachedTiles
-                ? "OPENSTREETMAP  /  OFFLINE CACHE"
+                ? basemapStyle == BasemapStyle.Street ? "OPENSTREETMAP  /  OFFLINE CACHE" : provider + "  /  PARTIAL"
                 : "MAP TILES UNAVAILABLE  /  LOCAL GRID";
         }
-        else statusText.text = $"OPENSTREETMAP  /  ZOOM {zoom}";
+        else statusText.text = $"{provider}  /  ZOOM {zoom}";
+    }
+
+    void UpdateAttribution()
+    {
+        if (attributionText == null) return;
+        attributionText.text = basemapStyle == BasemapStyle.Street
+            ? "© OpenStreetMap contributors"
+            : basemapStyle == BasemapStyle.Satellite
+                ? "Imagery © Esri and providers"
+                : "Imagery / labels © Esri and contributors";
     }
 
     string GetCachePath(int z, int x, int y)

@@ -1,12 +1,16 @@
 using UnityEngine;
 using UnityEngine.Rendering;
 
-/// Configures a lightweight dusk sky for the digital-twin viewport. The
-/// procedural skybox keeps the scene asset-free while still rendering a real
-/// sun disk from the scene's directional light.
+/// Configures the mountain-dawn environment for the digital-twin viewport.
 public static class DroneSkyEnvironment
 {
+    const string EnvironmentResourcePath = "Environment/kiara_1_dawn_2k";
+    const string GroundName = "Drone Ground Surface";
+    const float LitSunIntensity = 0.9f;
+    const float LitAmbientIntensity = 0.78f;
+
     static Material runtimeSky;
+    static Material runtimeGround;
     static Light runtimeSun;
     static bool lightingEnabled = true;
 
@@ -15,11 +19,19 @@ public static class DroneSkyEnvironment
         DroneController controller = Object.FindFirstObjectByType<DroneController>();
         float unitsPerMeter = controller != null ? controller.metersToUnity : 1f;
         DroneWorldGrid.EnsureGrid(unitsPerMeter: unitsPerMeter);
+        EnsureGround(unitsPerMeter);
 
-        Shader skyShader = Shader.Find("Skybox/Procedural");
+        Texture environmentTexture = Resources.Load<Texture>(EnvironmentResourcePath);
+        if (environmentTexture == null)
+        {
+            Debug.LogError("[Sky] Mountain panorama was not found at Resources/" + EnvironmentResourcePath + ".");
+            return;
+        }
+
+        Shader skyShader = Shader.Find("Skybox/Panoramic");
         if (skyShader == null)
         {
-            Debug.LogWarning("[Sky] Built-in procedural sky shader was not found.");
+            Debug.LogWarning("[Sky] Built-in panoramic sky shader was not found.");
             return;
         }
 
@@ -27,29 +39,29 @@ public static class DroneSkyEnvironment
         {
             runtimeSky = new Material(skyShader)
             {
-                name = "Drone Dusk Sky (Runtime)",
+                name = "Kiara Mountain Dawn Sky (Runtime)",
                 hideFlags = HideFlags.DontSave
             };
-            runtimeSky.SetFloat("_SunDisk", 2f);
-            runtimeSky.SetFloat("_SunSize", 0.045f);
-            runtimeSky.SetFloat("_SunSizeConvergence", 5f);
-            runtimeSky.SetFloat("_AtmosphereThickness", 1.25f);
-            runtimeSky.SetColor("_SkyTint", new Color(0.38f, 0.55f, 0.72f, 1f));
-            runtimeSky.SetColor("_GroundColor", new Color(0.38f, 0.31f, 0.27f, 1f));
-            runtimeSky.SetFloat("_Exposure", 1.05f);
         }
+        runtimeSky.SetTexture("_MainTex", environmentTexture);
+        runtimeSky.SetColor("_Tint", new Color(0.48f, 0.50f, 0.53f, 1f));
+        runtimeSky.SetFloat("_Exposure", 0.84f);
+        runtimeSky.SetFloat("_Rotation", 0f);
+        runtimeSky.SetFloat("_Mapping", 1f);
+        runtimeSky.SetFloat("_ImageType", 0f);
+        runtimeSky.SetFloat("_MirrorOnBack", 0f);
+        runtimeSky.DisableKeyword("_MAPPING_6_FRAMES_LAYOUT");
 
         RenderSettings.skybox = runtimeSky;
-        RenderSettings.ambientMode = AmbientMode.Trilight;
-        RenderSettings.ambientSkyColor = new Color(0.34f, 0.45f, 0.58f, 1f);
-        RenderSettings.ambientEquatorColor = new Color(0.30f, 0.27f, 0.25f, 1f);
-        RenderSettings.ambientGroundColor = new Color(0.08f, 0.09f, 0.10f, 1f);
-        RenderSettings.ambientIntensity = 0.85f;
+        RenderSettings.ambientMode = AmbientMode.Skybox;
+        RenderSettings.ambientIntensity = LitAmbientIntensity;
+        RenderSettings.defaultReflectionMode = DefaultReflectionMode.Skybox;
+        RenderSettings.reflectionIntensity = 0.8f;
         RenderSettings.fog = true;
         RenderSettings.fogMode = FogMode.Linear;
-        RenderSettings.fogColor = new Color(0.30f, 0.36f, 0.42f, 1f);
-        RenderSettings.fogStartDistance = 50f;
-        RenderSettings.fogEndDistance = 260f;
+        RenderSettings.fogColor = new Color(0.39f, 0.47f, 0.55f, 1f);
+        RenderSettings.fogStartDistance = 10f * unitsPerMeter;
+        RenderSettings.fogEndDistance = 85f * unitsPerMeter;
 
         Light sun = RenderSettings.sun;
         if (sun == null)
@@ -66,18 +78,17 @@ public static class DroneSkyEnvironment
         }
         if (sun == null)
         {
-            var sunObject = new GameObject("Dusk Sun");
+            var sunObject = new GameObject("Dawn Sun");
             sun = sunObject.AddComponent<Light>();
             sun.type = LightType.Directional;
         }
 
-        sun.name = "Dusk Sun";
-        sun.color = new Color(1f, 0.78f, 0.56f, 1f);
-        sun.intensity = 1.1f;
+        sun.name = "Dawn Sun";
+        sun.color = new Color(1f, 0.84f, 0.72f, 1f);
+        sun.intensity = LitSunIntensity;
         sun.shadows = LightShadows.Soft;
-        sun.shadowStrength = 0.72f;
-        // The sun disk sits low and to the right of the default drone camera.
-        sun.transform.rotation = Quaternion.Euler(10f, 205f, 0f);
+        sun.shadowStrength = 0.62f;
+        sun.transform.rotation = Quaternion.Euler(18f, 205f, 0f);
         RenderSettings.sun = sun;
         runtimeSun = sun;
         lightingEnabled = true;
@@ -89,12 +100,58 @@ public static class DroneSkyEnvironment
         DynamicGI.UpdateEnvironment();
     }
 
+    static void EnsureGround(float unitsPerMeter)
+    {
+        GameObject ground = GameObject.Find(GroundName);
+        if (ground == null)
+        {
+            ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            ground.name = GroundName;
+            ground.hideFlags = HideFlags.DontSave;
+            Collider collider = ground.GetComponent<Collider>();
+            if (collider != null) Object.Destroy(collider);
+        }
+
+        // Unity's built-in plane is 10 units wide; this matches the grid's 2 km span.
+        float scale = 200f * Mathf.Max(0.0001f, unitsPerMeter);
+        ground.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+        ground.transform.localScale = new Vector3(scale, 1f, scale);
+
+        MeshRenderer renderer = ground.GetComponent<MeshRenderer>();
+        if (renderer == null) return;
+
+        if (runtimeGround == null)
+        {
+            Shader groundShader = Shader.Find("Standard");
+            if (groundShader == null)
+            {
+                Debug.LogWarning("[Sky] Built-in Standard shader was not found for the ground surface.");
+                return;
+            }
+
+            runtimeGround = new Material(groundShader)
+            {
+                name = "Blue Green Ground (Runtime)",
+                hideFlags = HideFlags.DontSave
+            };
+            runtimeGround.SetColor("_Color", new Color(0.19f, 0.34f, 0.33f, 1f));
+            runtimeGround.SetFloat("_Metallic", 0f);
+            runtimeGround.SetFloat("_Glossiness", 0.12f);
+        }
+
+        renderer.sharedMaterial = runtimeGround;
+        renderer.shadowCastingMode = ShadowCastingMode.Off;
+        renderer.receiveShadows = true;
+        renderer.lightProbeUsage = LightProbeUsage.Off;
+        renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
+    }
+
     public static bool ToggleLighting()
     {
         if (runtimeSun == null) EnsureSceneSky();
         lightingEnabled = !lightingEnabled;
-        if (runtimeSun != null) runtimeSun.intensity = lightingEnabled ? 1.1f : 0.28f;
-        RenderSettings.ambientIntensity = lightingEnabled ? 0.85f : 0.42f;
+        if (runtimeSun != null) runtimeSun.intensity = lightingEnabled ? LitSunIntensity : 0.22f;
+        RenderSettings.ambientIntensity = lightingEnabled ? LitAmbientIntensity : 0.36f;
         RenderSettings.fog = lightingEnabled;
         DynamicGI.UpdateEnvironment();
         return lightingEnabled;

@@ -1,0 +1,9 @@
+Kiara 1 Dawn HDRI
+
+Author: Greg Zaal
+Source: https://polyhaven.com/a/kiara_1_dawn
+License: CC0 1.0 Universal
+License details: https://polyhaven.com/license
+
+Bundled file: kiara_1_dawn_2k.hdr
+Source MD5: c3b5f496629ab4707c6554e4761cc7cf

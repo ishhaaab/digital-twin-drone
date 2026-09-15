@@ -285,7 +285,7 @@ public class DroneDashboardUI : MonoBehaviour
         hl.spacing = 7;
         hl.childForceExpandWidth = false;
 
-        DroneUIFX.CreateIcon(go.transform, icon, 14f, TXT_DIM);
+        DroneUIFX.CreateIcon(go.transform, icon, 16f, TXT_SEC);
         var textCol = new GameObject("Text", typeof(RectTransform));
         textCol.transform.SetParent(go.transform, false);
         textCol.AddComponent<LayoutElement>().flexibleWidth = 1;
@@ -298,8 +298,8 @@ public class DroneDashboardUI : MonoBehaviour
         lblGO.transform.SetParent(textCol.transform, false);
         var lbl = lblGO.AddComponent<TextMeshProUGUI>();
         lbl.text = label;
-        lbl.fontSize = 8;
-        lbl.characterSpacing = 9;
+        lbl.fontSize = 9.5f;
+        lbl.characterSpacing = 5;
         lbl.fontStyle = FontStyles.Bold;
         lbl.color = TXT_DIM;
         lbl.alignment = TextAlignmentOptions.MidlineLeft;
@@ -308,7 +308,7 @@ public class DroneDashboardUI : MonoBehaviour
         valGO.transform.SetParent(textCol.transform, false);
         var val = valGO.AddComponent<TextMeshProUGUI>();
         val.text = initial;
-        val.fontSize = 12;
+        val.fontSize = 13;
         val.fontStyle = FontStyles.Bold;
         val.color = TXT;
         val.alignment = TextAlignmentOptions.MidlineLeft;
@@ -342,7 +342,7 @@ public class DroneDashboardUI : MonoBehaviour
         }
         else
         {
-            stateImage = DroneUIFX.CreateIcon(go.transform, icon, 14f, TXT_DIM);
+            stateImage = DroneUIFX.CreateIcon(go.transform, icon, 16f, TXT_SEC);
         }
 
         var textCol = new GameObject("Text", typeof(RectTransform));
@@ -357,7 +357,7 @@ public class DroneDashboardUI : MonoBehaviour
         valueGO.transform.SetParent(textCol.transform, false);
         var value = valueGO.AddComponent<TextMeshProUGUI>();
         value.text = initial;
-        value.fontSize = 11;
+        value.fontSize = 13;
         value.fontStyle = FontStyles.Bold;
         value.color = TXT;
         value.alignment = TextAlignmentOptions.MidlineLeft;
@@ -366,8 +366,8 @@ public class DroneDashboardUI : MonoBehaviour
         labelGO.transform.SetParent(textCol.transform, false);
         var caption = labelGO.AddComponent<TextMeshProUGUI>();
         caption.text = label;
-        caption.fontSize = 8;
-        caption.characterSpacing = 9;
+        caption.fontSize = 9.5f;
+        caption.characterSpacing = 5;
         caption.fontStyle = FontStyles.Bold;
         caption.color = TXT_DIM;
         caption.alignment = TextAlignmentOptions.MidlineLeft;
@@ -394,7 +394,7 @@ public class DroneDashboardUI : MonoBehaviour
         accentLayout.preferredWidth = 2;
         accentLayout.preferredHeight = 28;
 
-        DroneUIFX.CreateIcon(go.transform, DroneUIFX.IconType.Drone, 18f, ACCENT);
+        DroneUIFX.CreateIcon(go.transform, DroneUIFX.IconType.Drone, 20f, ACCENT);
 
         var textCol = new GameObject("Text", typeof(RectTransform));
         textCol.transform.SetParent(go.transform, false);
@@ -407,9 +407,9 @@ public class DroneDashboardUI : MonoBehaviour
         titleGO.transform.SetParent(textCol.transform, false);
         var title = titleGO.AddComponent<TextMeshProUGUI>();
         title.text = "DRONE TWIN";
-        title.fontSize = 13;
+        title.fontSize = 15;
         title.fontStyle = FontStyles.Bold;
-        title.characterSpacing = 8;
+        title.characterSpacing = 5;
         title.color = TXT;
         title.alignment = TextAlignmentOptions.MidlineLeft;
 
@@ -417,8 +417,8 @@ public class DroneDashboardUI : MonoBehaviour
         subtitleGO.transform.SetParent(textCol.transform, false);
         var subtitle = subtitleGO.AddComponent<TextMeshProUGUI>();
         subtitle.text = "GCS 0.1  /  FLIGHT CONTROL SYSTEM";
-        subtitle.fontSize = 7;
-        subtitle.characterSpacing = 4;
+        subtitle.fontSize = 8.5f;
+        subtitle.characterSpacing = 2;
         subtitle.color = TXT_DIM;
         subtitle.alignment = TextAlignmentOptions.MidlineLeft;
     }
@@ -475,14 +475,14 @@ public class DroneDashboardUI : MonoBehaviour
 
         var position = CreatePanelCard(outer, "PositionCard", 124f);
         SectionHeader(position, "POSITION  /  LOCAL NED", DroneUIFX.IconType.Position);
-        ui.xText = SlimStatRow(position, "NORTH  (X)", "m", rowH: 24, labelW: 108);
-        ui.yText = SlimStatRow(position, "EAST  (Y)", "m", rowH: 24, labelW: 108);
-        ui.zText = SlimStatRow(position, "ALTITUDE  (Z)", "m", rowH: 24, labelW: 108);
+        ui.xText = SlimStatRow(position, "NORTH  (X)", "m", rowH: 27, labelW: 112);
+        ui.yText = SlimStatRow(position, "EAST  (Y)", "m", rowH: 27, labelW: 112);
+        ui.zText = SlimStatRow(position, "ALTITUDE  (Z)", "m", rowH: 27, labelW: 112);
 
         var movement = CreatePanelCard(outer, "MovementCard", 86f);
         SectionHeader(movement, "MOVEMENT", DroneUIFX.IconType.Speed);
-        ui.speedText = SlimStatRow(movement, "GROUND SPEED", "m/s", rowH: 23, labelW: 132);
-        ui.verticalSpeedText = SlimStatRow(movement, "VERTICAL SPEED", "m/s", rowH: 23, labelW: 132);
+        ui.speedText = SlimStatRow(movement, "GROUND SPEED", "m/s", rowH: 27, labelW: 140);
+        ui.verticalSpeedText = SlimStatRow(movement, "VERTICAL SPEED", "m/s", rowH: 27, labelW: 140);
 
         var controls = CreatePanelCard(outer, "ControlsCard", 176f);
         SectionHeader(controls, "FLIGHT CONTROLS", DroneUIFX.IconType.Controls);
@@ -491,8 +491,8 @@ public class DroneDashboardUI : MonoBehaviour
         modeCaption.AddComponent<LayoutElement>().preferredHeight = 14;
         var modeCaptionText = modeCaption.AddComponent<TextMeshProUGUI>();
         modeCaptionText.text = "FLIGHT MODE";
-        modeCaptionText.fontSize = 9;
-        modeCaptionText.characterSpacing = 8;
+        modeCaptionText.fontSize = 11;
+        modeCaptionText.characterSpacing = 4;
         modeCaptionText.fontStyle = FontStyles.Bold;
         modeCaptionText.color = TXT_DIM;
         modeCaptionText.alignment = TextAlignmentOptions.MidlineLeft;
@@ -501,14 +501,14 @@ public class DroneDashboardUI : MonoBehaviour
         modeRow.AddComponent<LayoutElement>().preferredHeight = 30;
         var mrhl = modeRow.AddComponent<HorizontalLayoutGroup>();
         mrhl.spacing = 6; mrhl.childForceExpandWidth = true;
-        ui.stabilizeButtonStyle = MakeAeroButton(modeRow, "STABILIZE", BTN_MODE_ACCENT, false, () => SendCmd("STABILIZE"), 9, 30);
-        ui.altHoldButtonStyle = MakeAeroButton(modeRow, "ALT HOLD", BTN_MODE_ACCENT, false, () => SendCmd("ALT_HOLD"), 9, 30);
-        ui.posHoldButtonStyle = MakeAeroButton(modeRow, "POS HOLD", BTN_MODE_ACCENT, false, () => SendCmd("POSHOLD"), 9, 30);
-        MakeAeroButton(controls, "LAND", BTN_LAND_ACCENT, false, () => SendCmd("LAND"), 10, 32);
+        ui.stabilizeButtonStyle = MakeAeroButton(modeRow, "STABILIZE", BTN_MODE_ACCENT, false, () => SendCmd("STABILIZE"), 10.5f, 30);
+        ui.altHoldButtonStyle = MakeAeroButton(modeRow, "ALT HOLD", BTN_MODE_ACCENT, false, () => SendCmd("ALT_HOLD"), 10.5f, 30);
+        ui.posHoldButtonStyle = MakeAeroButton(modeRow, "POS HOLD", BTN_MODE_ACCENT, false, () => SendCmd("POSHOLD"), 10.5f, 30);
+        MakeAeroButton(controls, "LAND", BTN_LAND_ACCENT, false, () => SendCmd("LAND"), 11, 32);
         MakeAeroButton(controls, "FORCE DISARM", BTN_DISARM_ACCENT, true,
             () => ConfirmDialog("FORCE DISARM",
                 "This forcibly disarms motors in flight.\nConfirm to send FORCE_DISARM to the vehicle.",
-                "CONFIRM DISARM", () => SendCmd("FORCE_DISARM")), 10, 32, DroneUIFX.IconType.Lock);
+                "CONFIRM DISARM", () => SendCmd("FORCE_DISARM")), 11, 32, DroneUIFX.IconType.Lock);
 
         var vibration = CreatePanelCard(outer, "VibrationCard", 96f);
         SectionHeader(vibration, "VIBRATION  (m/s²)", DroneUIFX.IconType.Telemetry);
@@ -540,7 +540,7 @@ public class DroneDashboardUI : MonoBehaviour
         statusTextGO.transform.SetParent(statusGO.transform, false);
         var statusText = statusTextGO.AddComponent<TextMeshProUGUI>();
         statusText.text = "OK";
-        statusText.fontSize = 11;
+        statusText.fontSize = 12;
         statusText.fontStyle = FontStyles.Bold;
         statusText.color = GREEN;
         statusText.alignment = TextAlignmentOptions.Center;
@@ -576,8 +576,8 @@ public class DroneDashboardUI : MonoBehaviour
         pctVl.spacing = 0; pctVl.childForceExpandWidth = true;
         var pctLblGO = new GameObject("Lbl"); pctLblGO.transform.SetParent(pctCol.transform, false);
         var pctLbl = pctLblGO.AddComponent<TextMeshProUGUI>();
-        pctLbl.text = "BATTERY"; pctLbl.fontSize = 10; pctLbl.characterSpacing = 10;
-        pctLbl.fontStyle = FontStyles.Bold; pctLbl.color = TXT_DIM; pctLbl.alignment = TextAlignmentOptions.MidlineLeft;
+        pctLbl.text = "BATTERY"; pctLbl.fontSize = 11; pctLbl.characterSpacing = 5;
+        pctLbl.fontStyle = FontStyles.Bold; pctLbl.color = TXT_SEC; pctLbl.alignment = TextAlignmentOptions.MidlineLeft;
         var pctGO = new GameObject("Val"); pctGO.transform.SetParent(pctCol.transform, false);
         var pct = pctGO.AddComponent<TextMeshProUGUI>();
         pct.text = "--"; pct.fontSize = 28; pct.fontStyle = FontStyles.Bold;
@@ -591,8 +591,8 @@ public class DroneDashboardUI : MonoBehaviour
         barVl.spacing = 4; barVl.childAlignment = TextAnchor.MiddleLeft;
         var barNoteGO = new GameObject("Note"); barNoteGO.transform.SetParent(barSlot.transform, false);
         var note = barNoteGO.AddComponent<TextMeshProUGUI>();
-        note.text = "STATE"; note.fontSize = 9; note.characterSpacing = 8;
-        note.fontStyle = FontStyles.Bold; note.color = TXT_DIM; note.alignment = TextAlignmentOptions.MidlineLeft;
+        note.text = "STATE"; note.fontSize = 10.5f; note.characterSpacing = 4;
+        note.fontStyle = FontStyles.Bold; note.color = TXT_SEC; note.alignment = TextAlignmentOptions.MidlineLeft;
         var barGauge = DroneUIFX.CreateHorizontalBar(barSlot.transform, "BatteryBar", 10);
         fx.widgets.Add(barGauge);
         ui.batteryBar = barGauge;
@@ -621,8 +621,8 @@ public class DroneDashboardUI : MonoBehaviour
         var satsLbl = new GameObject("SatsLbl", typeof(RectTransform));
         satsLbl.transform.SetParent(gpsTop.transform, false);
         var satsT = satsLbl.AddComponent<TextMeshProUGUI>();
-        satsT.text = "SATELLITES"; satsT.fontSize = 9; satsT.characterSpacing = 8;
-        satsT.fontStyle = FontStyles.Bold; satsT.color = TXT_DIM; satsT.alignment = TextAlignmentOptions.MidlineLeft;
+        satsT.text = "SATELLITES"; satsT.fontSize = 10.5f; satsT.characterSpacing = 4;
+        satsT.fontStyle = FontStyles.Bold; satsT.color = TXT_SEC; satsT.alignment = TextAlignmentOptions.MidlineLeft;
         satsLbl.AddComponent<LayoutElement>().preferredWidth = 74;
 
         var satVal = new GameObject("SatVal", typeof(RectTransform));
@@ -637,9 +637,9 @@ public class DroneDashboardUI : MonoBehaviour
         spacer.transform.SetParent(gpsTop.transform, false);
         spacer.AddComponent<LayoutElement>().flexibleWidth = 1;
 
-        ui.latText = SlimStatRow(navigation, "LATITUDE", "°", rowH: 24, labelW: 94);
-        ui.lonText = SlimStatRow(navigation, "LONGITUDE", "°", rowH: 24, labelW: 94);
-        ui.gpsAltText = SlimStatRow(navigation, "GPS ALTITUDE", "m", rowH: 24, labelW: 106);
+        ui.latText = SlimStatRow(navigation, "LATITUDE", "°", rowH: 27, labelW: 104);
+        ui.lonText = SlimStatRow(navigation, "LONGITUDE", "°", rowH: 27, labelW: 104);
+        ui.gpsAltText = SlimStatRow(navigation, "GPS ALTITUDE", "m", rowH: 27, labelW: 118);
 
         var link = CreatePanelCard(outer, "LinkCard", 242f);
         SectionHeader(link, "LINK  /  TELEMETRY", DroneUIFX.IconType.Telemetry);
@@ -659,12 +659,12 @@ public class DroneDashboardUI : MonoBehaviour
         ui.latMeanText = latRow; // reuse as primary mean latency display
         latRow.fontSize = 20;
 
-        var rateRow = SlimStatRow(link, "PACKET RATE", "Hz", rowH: 23, labelW: 118);
+        var rateRow = SlimStatRow(link, "PACKET RATE", "Hz", rowH: 26, labelW: 126);
         ui.packetRateText = rateRow;
-        ui.latVarText = SlimStatRow(link, "JITTER  (σ)", "ms", rowH: 23, labelW: 118);
-        ui.latMinText = SlimStatRow(link, "MIN LATENCY", "ms", rowH: 23, labelW: 118);
-        ui.latMaxText = SlimStatRow(link, "MAX LATENCY", "ms", rowH: 23, labelW: 118);
-        ui.packetLossText = SlimStatRow(link, "PACKET LOSS", "%", rowH: 23, labelW: 118);
+        ui.latVarText = SlimStatRow(link, "JITTER  (σ)", "ms", rowH: 26, labelW: 126);
+        ui.latMinText = SlimStatRow(link, "MIN LATENCY", "ms", rowH: 26, labelW: 126);
+        ui.latMaxText = SlimStatRow(link, "MAX LATENCY", "ms", rowH: 26, labelW: 126);
+        ui.packetLossText = SlimStatRow(link, "PACKET LOSS", "%", rowH: 26, labelW: 126);
 
         var status = CreatePanelCard(outer, "SystemStatusCard", 154f);
         SectionHeader(status, "SYSTEM STATUS", DroneUIFX.IconType.System);
@@ -770,9 +770,9 @@ public class DroneDashboardUI : MonoBehaviour
         mapTitleGO.transform.SetParent(mapViewLayer.transform, false);
         var mapTitle = mapTitleGO.AddComponent<TextMeshProUGUI>();
         mapTitle.text = "OPENSTREETMAP  /  WAITING FOR GPS";
-        mapTitle.fontSize = 9;
+        mapTitle.fontSize = 11;
         mapTitle.fontStyle = FontStyles.Bold;
-        mapTitle.characterSpacing = 10;
+        mapTitle.characterSpacing = 5;
         mapTitle.color = TXT_SEC;
         mapTitle.alignment = TextAlignmentOptions.MidlineLeft;
         var mapTitleRT = mapTitle.rectTransform;
@@ -786,7 +786,7 @@ public class DroneDashboardUI : MonoBehaviour
         scaleGO.transform.SetParent(mapViewLayer.transform, false);
         var scale = scaleGO.AddComponent<TextMeshProUGUI>();
         scale.text = "GRID  2.5 m";
-        scale.fontSize = 9;
+        scale.fontSize = 10.5f;
         scale.fontStyle = FontStyles.Bold;
         scale.color = ACCENT;
         scale.alignment = TextAlignmentOptions.MidlineRight;
@@ -844,7 +844,7 @@ public class DroneDashboardUI : MonoBehaviour
         textGO.transform.SetParent(go.transform, false);
         var text = textGO.AddComponent<TextMeshProUGUI>();
         text.text = "© OpenStreetMap contributors";
-        text.fontSize = 10;
+        text.fontSize = 11;
         text.color = TXT;
         text.alignment = TextAlignmentOptions.Center;
         text.raycastTarget = false;
@@ -858,7 +858,7 @@ public class DroneDashboardUI : MonoBehaviour
         go.transform.SetParent(parent, false);
         var text = go.AddComponent<TextMeshProUGUI>();
         text.text = initial;
-        text.fontSize = 10;
+        text.fontSize = 11;
         text.fontStyle = FontStyles.Bold;
         text.color = TXT;
         text.alignment = alignment;
@@ -871,7 +871,7 @@ public class DroneDashboardUI : MonoBehaviour
         go.transform.SetParent(parent, false);
         var text = go.AddComponent<TextMeshProUGUI>();
         text.text = value;
-        text.fontSize = 11;
+        text.fontSize = 12;
         text.fontStyle = FontStyles.Bold;
         text.color = ACCENT;
         text.alignment = TextAlignmentOptions.Center;
@@ -927,7 +927,7 @@ public class DroneDashboardUI : MonoBehaviour
         headingGO.transform.SetParent(center.transform, false);
         var heading = headingGO.AddComponent<TextMeshProUGUI>();
         heading.text = "---°";
-        heading.fontSize = 13;
+        heading.fontSize = 15;
         heading.fontStyle = FontStyles.Bold;
         heading.characterSpacing = 8;
         heading.color = TXT;
@@ -1026,9 +1026,9 @@ public class DroneDashboardUI : MonoBehaviour
         titleGO.AddComponent<LayoutElement>().preferredHeight = 18;
         var titleText = titleGO.AddComponent<TextMeshProUGUI>();
         titleText.text = title;
-        titleText.fontSize = 9;
+        titleText.fontSize = 11;
         titleText.fontStyle = FontStyles.Bold;
-        titleText.characterSpacing = 8;
+        titleText.characterSpacing = 4;
         titleText.color = TXT_DIM;
         titleText.alignment = TextAlignmentOptions.MidlineLeft;
         titleText.raycastTarget = false;
@@ -1079,7 +1079,7 @@ public class DroneDashboardUI : MonoBehaviour
         labelGO.transform.SetParent(parent, false);
         var text = labelGO.AddComponent<TextMeshProUGUI>();
         text.text = label;
-        text.fontSize = 10;
+        text.fontSize = 11;
         text.fontStyle = FontStyles.Bold;
         text.color = color;
         text.alignment = TextAlignmentOptions.Center;
@@ -1143,9 +1143,9 @@ public class DroneDashboardUI : MonoBehaviour
         labelGO.AddComponent<LayoutElement>().preferredWidth = 76;
         var labelText = labelGO.AddComponent<TextMeshProUGUI>();
         labelText.text = label;
-        labelText.fontSize = 9;
+        labelText.fontSize = 10.5f;
         labelText.fontStyle = FontStyles.Bold;
-        labelText.characterSpacing = 6;
+        labelText.characterSpacing = 3;
         labelText.color = TXT_SEC;
         labelText.alignment = TextAlignmentOptions.MidlineLeft;
 
@@ -1154,7 +1154,7 @@ public class DroneDashboardUI : MonoBehaviour
         valueGO.AddComponent<LayoutElement>().flexibleWidth = 1;
         var value = valueGO.AddComponent<TextMeshProUGUI>();
         value.text = initial;
-        value.fontSize = 12;
+        value.fontSize = 13;
         value.fontStyle = FontStyles.Bold;
         value.color = TXT;
         value.alignment = TextAlignmentOptions.MidlineRight;
@@ -1201,9 +1201,9 @@ public class DroneDashboardUI : MonoBehaviour
         textGO.transform.SetParent(go.transform, false);
         var text = textGO.AddComponent<TextMeshProUGUI>();
         text.text = label;
-        text.fontSize = 9;
+        text.fontSize = 10.5f;
         text.fontStyle = FontStyles.Bold;
-        text.characterSpacing = 6;
+        text.characterSpacing = 3;
         text.color = interactable ? TXT_SEC : TXT_DIM;
         text.alignment = TextAlignmentOptions.Center;
         text.raycastTarget = false;
@@ -1263,9 +1263,9 @@ public class DroneDashboardUI : MonoBehaviour
         labelGO.transform.SetParent(go.transform, false);
         var labelText = labelGO.AddComponent<TextMeshProUGUI>();
         labelText.text = label;
-        labelText.fontSize = 9;
+        labelText.fontSize = 10;
         labelText.fontStyle = FontStyles.Bold;
-        labelText.characterSpacing = 7;
+        labelText.characterSpacing = 3;
         labelText.color = TXT_DIM;
         labelText.alignment = TextAlignmentOptions.MidlineLeft;
         labelGO.AddComponent<LayoutElement>().preferredWidth = 36;
@@ -1273,7 +1273,7 @@ public class DroneDashboardUI : MonoBehaviour
         valueGO.transform.SetParent(go.transform, false);
         var value = valueGO.AddComponent<TextMeshProUGUI>();
         value.text = initial;
-        value.fontSize = 11;
+        value.fontSize = 12;
         value.fontStyle = FontStyles.Bold;
         value.color = TXT;
         value.alignment = TextAlignmentOptions.MidlineRight;
@@ -1445,9 +1445,9 @@ public class DroneDashboardUI : MonoBehaviour
         labelGO.AddComponent<LayoutElement>().flexibleWidth = 1;
         var labelText = labelGO.AddComponent<TextMeshProUGUI>();
         labelText.text = label;
-        labelText.fontSize = 9;
-        labelText.characterSpacing = 6;
-        labelText.color = TXT_DIM;
+        labelText.fontSize = 10.5f;
+        labelText.characterSpacing = 3;
+        labelText.color = TXT_SEC;
         labelText.alignment = TextAlignmentOptions.MidlineLeft;
 
         var valueGO = new GameObject("Value", typeof(RectTransform));
@@ -1455,7 +1455,7 @@ public class DroneDashboardUI : MonoBehaviour
         valueGO.AddComponent<LayoutElement>().preferredWidth = 150;
         var valueText = valueGO.AddComponent<TextMeshProUGUI>();
         valueText.text = value;
-        valueText.fontSize = 10;
+        valueText.fontSize = 11.5f;
         valueText.fontStyle = FontStyles.Bold;
         valueText.color = TXT;
         valueText.alignment = TextAlignmentOptions.MidlineRight;
@@ -1644,8 +1644,8 @@ public class DroneDashboardUI : MonoBehaviour
         le.flexibleHeight = flexibleHeight;
 
         var vl = card.AddComponent<VerticalLayoutGroup>();
-        vl.padding = new RectOffset(9, 9, 8, 9);
-        vl.spacing = 4;
+        vl.padding = new RectOffset(11, 11, 10, 10);
+        vl.spacing = 5;
         vl.childForceExpandWidth = true;
         vl.childForceExpandHeight = false;
         vl.childControlWidth = true;
@@ -1688,17 +1688,17 @@ public class DroneDashboardUI : MonoBehaviour
         labelGO.transform.SetParent(stat.transform, false);
         var labelText = labelGO.AddComponent<TextMeshProUGUI>();
         labelText.text = label;
-        labelText.fontSize = 9;
-        labelText.characterSpacing = 8;
+        labelText.fontSize = 11;
+        labelText.characterSpacing = 4;
         labelText.fontStyle = FontStyles.Bold;
-        labelText.color = TXT_DIM;
+        labelText.color = TXT_SEC;
         labelText.alignment = TextAlignmentOptions.MidlineLeft;
 
         var valueGO = new GameObject("Value", typeof(RectTransform));
         valueGO.transform.SetParent(stat.transform, false);
         var value = valueGO.AddComponent<TextMeshProUGUI>();
         value.text = initial;
-        value.fontSize = 16;
+        value.fontSize = 17;
         value.fontStyle = FontStyles.Bold;
         value.color = ACCENT;
         value.alignment = TextAlignmentOptions.MidlineLeft;
@@ -1709,7 +1709,7 @@ public class DroneDashboardUI : MonoBehaviour
     {
         var row = new GameObject(label + "Status", typeof(RectTransform));
         row.transform.SetParent(parent.transform, false);
-        row.AddComponent<LayoutElement>().preferredHeight = 23;
+        row.AddComponent<LayoutElement>().preferredHeight = 25;
         var hl = row.AddComponent<HorizontalLayoutGroup>();
         hl.padding = new RectOffset(3, 3, 0, 0);
         hl.spacing = 9;
@@ -1724,15 +1724,15 @@ public class DroneDashboardUI : MonoBehaviour
         dot.color = TXT_DIM;
         dot.raycastTarget = false;
         var dotLE = dotGO.AddComponent<LayoutElement>();
-        dotLE.preferredWidth = 8;
-        dotLE.preferredHeight = 8;
+        dotLE.preferredWidth = 9;
+        dotLE.preferredHeight = 9;
 
         var labelGO = new GameObject("Label", typeof(RectTransform));
         labelGO.transform.SetParent(row.transform, false);
         var labelText = labelGO.AddComponent<TextMeshProUGUI>();
         labelText.text = label;
-        labelText.fontSize = 9;
-        labelText.characterSpacing = 6;
+        labelText.fontSize = 10.5f;
+        labelText.characterSpacing = 3;
         labelText.color = TXT_SEC;
         labelText.alignment = TextAlignmentOptions.MidlineLeft;
         var labelLE = labelGO.AddComponent<LayoutElement>();
@@ -1743,9 +1743,9 @@ public class DroneDashboardUI : MonoBehaviour
         valueGO.transform.SetParent(row.transform, false);
         var value = valueGO.AddComponent<TextMeshProUGUI>();
         value.text = "WAIT";
-        value.fontSize = 9;
+        value.fontSize = 10.5f;
         value.fontStyle = FontStyles.Bold;
-        value.characterSpacing = 6;
+        value.characterSpacing = 3;
         value.color = TXT_DIM;
         value.alignment = TextAlignmentOptions.MidlineRight;
         valueGO.AddComponent<LayoutElement>().preferredWidth = 80;
@@ -1789,22 +1789,46 @@ public class DroneDashboardUI : MonoBehaviour
     {
         var go = new GameObject("Hdr_" + title, typeof(RectTransform));
         go.transform.SetParent(parent.transform, false);
-        go.AddComponent<LayoutElement>().preferredHeight = 16;
+        go.AddComponent<LayoutElement>().preferredHeight = 26;
         var hl = go.AddComponent<HorizontalLayoutGroup>();
-        hl.childAlignment = TextAnchor.MiddleLeft; hl.spacing = 6;
+        hl.childAlignment = TextAnchor.MiddleLeft; hl.spacing = 7;
         hl.childForceExpandWidth = false;
+        hl.childForceExpandHeight = false;
         var line = new GameObject("Line", typeof(RectTransform), typeof(Image));
         line.transform.SetParent(go.transform, false);
-        line.AddComponent<LayoutElement>().preferredWidth = 2;
+        var lineLayout = line.AddComponent<LayoutElement>();
+        lineLayout.preferredWidth = 3;
+        lineLayout.preferredHeight = 22;
         line.GetComponent<Image>().color = ACCENT;
-        DroneUIFX.CreateIcon(go.transform, icon, 12f, TXT_SEC);
+
+        var iconPlate = new GameObject("IconPlate", typeof(RectTransform), typeof(Image));
+        iconPlate.transform.SetParent(go.transform, false);
+        var iconPlateImage = iconPlate.GetComponent<Image>();
+        iconPlateImage.sprite = DroneUIFX.RoundedRectSprite;
+        iconPlateImage.type = Image.Type.Sliced;
+        iconPlateImage.color = new Color(ACCENT.r, ACCENT.g, ACCENT.b, 0.12f);
+        iconPlateImage.raycastTarget = false;
+        var iconPlateLayout = iconPlate.AddComponent<LayoutElement>();
+        iconPlateLayout.preferredWidth = 22;
+        iconPlateLayout.preferredHeight = 22;
+        iconPlateLayout.flexibleWidth = 0;
+        iconPlateLayout.flexibleHeight = 0;
+        var iconImage = DroneUIFX.CreateIcon(iconPlate.transform, icon, 16f, ACCENT);
+        var iconRect = iconImage.rectTransform;
+        iconRect.anchorMin = iconRect.anchorMax = new Vector2(0.5f, 0.5f);
+        iconRect.anchoredPosition = Vector2.zero;
+        iconRect.sizeDelta = new Vector2(16, 16);
+
         var txtGO = new GameObject("Text", typeof(RectTransform));
         txtGO.transform.SetParent(go.transform, false);
         txtGO.AddComponent<LayoutElement>().flexibleWidth = 1;
         var txt = txtGO.AddComponent<TextMeshProUGUI>();
-        txt.text = title; txt.fontSize = 9; txt.characterSpacing = 11;
-        txt.fontStyle = FontStyles.Bold; txt.color = TXT_DIM;
+        txt.text = title; txt.fontSize = 13; txt.characterSpacing = 4;
+        txt.fontStyle = FontStyles.Bold; txt.color = TXT;
         txt.alignment = TextAlignmentOptions.MidlineLeft;
+        txt.enableAutoSizing = true;
+        txt.fontSizeMin = 11;
+        txt.fontSizeMax = 13;
     }
 
     TextMeshProUGUI CompactInlineMetric(GameObject parent, string label)
@@ -1822,7 +1846,7 @@ public class DroneDashboardUI : MonoBehaviour
         labelGO.AddComponent<LayoutElement>().preferredWidth = 13;
         var labelText = labelGO.AddComponent<TextMeshProUGUI>();
         labelText.text = label;
-        labelText.fontSize = 10;
+        labelText.fontSize = 11;
         labelText.fontStyle = FontStyles.Bold;
         labelText.color = TXT_SEC;
         labelText.alignment = TextAlignmentOptions.MidlineLeft;
@@ -1832,7 +1856,7 @@ public class DroneDashboardUI : MonoBehaviour
         valueGO.AddComponent<LayoutElement>().flexibleWidth = 1;
         var value = valueGO.AddComponent<TextMeshProUGUI>();
         value.text = "--";
-        value.fontSize = 15;
+        value.fontSize = 16;
         value.fontStyle = FontStyles.Bold;
         value.color = ACCENT;
         value.alignment = TextAlignmentOptions.MidlineLeft;
@@ -1855,8 +1879,8 @@ public class DroneDashboardUI : MonoBehaviour
         var lblGO = new GameObject("Label", typeof(RectTransform));
         lblGO.transform.SetParent(row.transform, false);
         var lbl = lblGO.AddComponent<TextMeshProUGUI>();
-        lbl.text = label; lbl.fontSize = 9; lbl.characterSpacing = 6;
-        lbl.fontStyle = FontStyles.Bold; lbl.color = prominent ? TXT_SEC : TXT_DIM;
+        lbl.text = label; lbl.fontSize = 11.5f; lbl.characterSpacing = 2;
+        lbl.fontStyle = FontStyles.Bold; lbl.color = prominent ? TXT : TXT_SEC;
         lbl.alignment = TextAlignmentOptions.MidlineLeft;
         var lle = lblGO.AddComponent<LayoutElement>(); lle.preferredWidth = labelW; lle.flexibleWidth = 0;
 
@@ -1864,12 +1888,12 @@ public class DroneDashboardUI : MonoBehaviour
         valGO.transform.SetParent(row.transform, false);
         var val = valGO.AddComponent<TextMeshProUGUI>();
         val.text = "--";
-        val.fontSize = prominent ? 18 : 13;
+        val.fontSize = prominent ? 19 : 15;
         val.fontStyle = FontStyles.Bold;
         val.color = prominent ? NUM : NUM;
         val.alignment = TextAlignmentOptions.MidlineRight;
-        val.fontSizeMin = prominent ? 14 : 10;
-        val.fontSizeMax = prominent ? 18 : 13;
+        val.fontSizeMin = prominent ? 15 : 12;
+        val.fontSizeMax = prominent ? 19 : 15;
         val.enableAutoSizing = true;
         valGO.AddComponent<LayoutElement>().flexibleWidth = 1;
 
@@ -1879,11 +1903,11 @@ public class DroneDashboardUI : MonoBehaviour
             unitGO.transform.SetParent(row.transform, false);
             var unitText = unitGO.AddComponent<TextMeshProUGUI>();
             unitText.text = unit;
-            unitText.fontSize = 8;
-            unitText.color = TXT_DIM;
+            unitText.fontSize = 9.5f;
+            unitText.color = TXT_SEC;
             unitText.alignment = TextAlignmentOptions.MidlineRight;
             var unitLayout = unitGO.AddComponent<LayoutElement>();
-            unitLayout.preferredWidth = unit == "m/s" ? 25 : unit == "ms" ? 18 : 12;
+            unitLayout.preferredWidth = unit == "m/s" ? 30 : unit == "ms" ? 22 : 16;
         }
 
         return val;
@@ -1899,11 +1923,11 @@ public class DroneDashboardUI : MonoBehaviour
         vl.spacing = 0; vl.childAlignment = TextAnchor.MiddleCenter;
         var lblGO = new GameObject("Lbl"); lblGO.transform.SetParent(col.transform, false);
         var lbl = lblGO.AddComponent<TextMeshProUGUI>();
-        lbl.text = label; lbl.fontSize = 9; lbl.characterSpacing = 8; lbl.fontStyle = FontStyles.Bold;
-        lbl.color = TXT_DIM; lbl.alignment = TextAlignmentOptions.Center;
+        lbl.text = label; lbl.fontSize = 10.5f; lbl.characterSpacing = 4; lbl.fontStyle = FontStyles.Bold;
+        lbl.color = TXT_SEC; lbl.alignment = TextAlignmentOptions.Center;
         var valGO = new GameObject("Val"); valGO.transform.SetParent(col.transform, false);
         var val = valGO.AddComponent<TextMeshProUGUI>();
-        val.text = "--"; val.fontSize = 15; val.fontStyle = FontStyles.Bold;
+        val.text = "--"; val.fontSize = 17; val.fontStyle = FontStyles.Bold;
         val.color = NUM; val.alignment = TextAlignmentOptions.Center;
         if (!string.IsNullOrEmpty(unit))
         {
@@ -1911,8 +1935,8 @@ public class DroneDashboardUI : MonoBehaviour
             unitGO.transform.SetParent(col.transform, false);
             var unitText = unitGO.AddComponent<TextMeshProUGUI>();
             unitText.text = unit;
-            unitText.fontSize = 8;
-            unitText.color = TXT_DIM;
+            unitText.fontSize = 9.5f;
+            unitText.color = TXT_SEC;
             unitText.alignment = TextAlignmentOptions.Center;
         }
         return val;

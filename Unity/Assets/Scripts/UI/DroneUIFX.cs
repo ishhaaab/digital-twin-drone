@@ -166,7 +166,7 @@ public static class DroneUIFX
         texture.SetPixels32(clear);
         Color ink = Color.white;
 
-        void Line(float x0, float y0, float x1, float y1, float width = 3f)
+        void Line(float x0, float y0, float x1, float y1, float width = 4.5f)
         {
             int minX = Mathf.Max(0, Mathf.FloorToInt(Mathf.Min(x0, x1) - width));
             int maxX = Mathf.Min(size - 1, Mathf.CeilToInt(Mathf.Max(x0, x1) + width));
@@ -187,7 +187,7 @@ public static class DroneUIFX
             }
         }
 
-        void Circle(float cx, float cy, float radius, float width = 3f)
+        void Circle(float cx, float cy, float radius, float width = 4.5f)
         {
             int minX = Mathf.Max(0, Mathf.FloorToInt(cx - radius - width));
             int maxX = Mathf.Min(size - 1, Mathf.CeilToInt(cx + radius + width));
@@ -202,7 +202,7 @@ public static class DroneUIFX
             }
         }
 
-        void Rect(float x0, float y0, float x1, float y1, float width = 3f)
+        void Rect(float x0, float y0, float x1, float y1, float width = 4.5f)
         {
             Line(x0, y0, x1, y0, width); Line(x1, y0, x1, y1, width);
             Line(x1, y1, x0, y1, width); Line(x0, y1, x0, y0, width);
@@ -1392,35 +1392,36 @@ public static class DroneUIFX
         // Header row: title left, value right
         var headerGO = new GameObject("Header", typeof(RectTransform));
         headerGO.transform.SetParent(card.transform, false);
-        headerGO.AddComponent<LayoutElement>().preferredHeight = 20;
+        headerGO.AddComponent<LayoutElement>().preferredHeight = 24;
         var hl = headerGO.AddComponent<HorizontalLayoutGroup>();
         hl.spacing = 6;
         hl.childForceExpandWidth = false;
+        hl.childForceExpandHeight = false;
         hl.childAlignment = TextAnchor.MiddleLeft;
 
         IconType graphIcon = title.Contains("ALTITUDE") ? IconType.Altitude
             : title.Contains("SPEED") ? IconType.Speed
             : title.Contains("BATTERY") ? IconType.Battery
             : IconType.Telemetry;
-        CreateIcon(headerGO.transform, graphIcon, 13f, AERO_TEXT_SEC);
+        CreateIcon(headerGO.transform, graphIcon, 16f, AERO_ACCENT);
 
         var titleGO = new GameObject("Title", typeof(RectTransform));
         titleGO.transform.SetParent(headerGO.transform, false);
         var titleTMP = titleGO.AddComponent<TextMeshProUGUI>();
         titleTMP.text = title;
-        titleTMP.fontSize = 9;
+        titleTMP.fontSize = 11;
         titleTMP.fontStyle = FontStyles.Bold;
-        titleTMP.color = AERO_TEXT_DIM;
+        titleTMP.color = AERO_TEXT_SEC;
         titleTMP.alignment = TextAlignmentOptions.MidlineLeft;
         // letter spacing for aerospace label
-        titleTMP.characterSpacing = 10f;
+        titleTMP.characterSpacing = 5f;
         titleGO.AddComponent<LayoutElement>().flexibleWidth = 1;
 
         var valueGO = new GameObject("Value", typeof(RectTransform));
         valueGO.transform.SetParent(headerGO.transform, false);
         var valueTMP = valueGO.AddComponent<TextMeshProUGUI>();
         valueTMP.text = "-- " + unit;
-        valueTMP.fontSize = 13;
+        valueTMP.fontSize = 14.5f;
         valueTMP.fontStyle = FontStyles.Bold;
         valueTMP.color = AERO_NUM;
         valueTMP.alignment = TextAlignmentOptions.MidlineRight;
@@ -1457,7 +1458,7 @@ public static class DroneUIFX
             labelGO.transform.SetParent(axisGO.transform, false);
             var label = labelGO.AddComponent<TextMeshProUGUI>();
             label.text = labels[i];
-            label.fontSize = 7;
+            label.fontSize = 8.5f;
             label.color = AERO_TEXT_DIM;
             label.alignment = i == 0 ? TextAlignmentOptions.MidlineLeft
                 : i == labels.Length - 1 ? TextAlignmentOptions.MidlineRight

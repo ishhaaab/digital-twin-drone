@@ -95,6 +95,9 @@ public class DroneUIUpdater : MonoBehaviour
     [HideInInspector] public DroneUIFX.AeroButtonHoverFX stabilizeButtonStyle;
     [HideInInspector] public DroneUIFX.AeroButtonHoverFX altHoldButtonStyle;
     [HideInInspector] public DroneUIFX.AeroButtonHoverFX posHoldButtonStyle;
+    [HideInInspector] public DroneUIFX.AeroButtonHoverFX landButtonStyle;
+    [HideInInspector] public DroneUIFX.AeroButtonHoverFX forceDisarmButtonStyle;
+    [HideInInspector] public TextMeshProUGUI commandStatusText;
 
     // ── FX widgets ─────────────────────────────────────────────────────
     [HideInInspector] public DroneUIFX.RadialGaugeFX   batteryRing;
@@ -126,8 +129,6 @@ public class DroneUIUpdater : MonoBehaviour
     public float latencyCriticalMs = 300f;  // red threshold for pill
 
     [Header("GPS quality")]
-    public float gpsGoodLatencyMs = 80f;
-    public float gpsPoorLatencyMs = 400f;
     public float satellitesForFullBars = 12f;
     public int gpsDegradedSats = 6;         // below this = degraded (when sats >=0)
 
@@ -141,7 +142,6 @@ public class DroneUIUpdater : MonoBehaviour
 
     float uptime = 0f;
     int packets = 0;
-    bool batteryCriticalLandSent = false;
     float alarmFlashTimer = 0f;
 
     // packet rate — sliding 1s window
@@ -156,17 +156,16 @@ public class DroneUIUpdater : MonoBehaviour
         uptime += Time.deltaTime;
         graphSampleElapsed += Time.deltaTime;
         SetText(uptimeText, FormatTime(uptime));
-
         if (dataReceiver == null) return;
 
         vibCriticalThreshold = dataReceiver.vibrationThreshold;
+        var d = dataReceiver.latestData;
+        var ls = dataReceiver.latencyStats;
+        double packetAge = dataReceiver.LastPacketAgeSeconds;
+        bool never = packetAge < 0.0;
+        float age = (float)packetAge;
 
-        // ── Connection pill (3-state) — UI presentation thresholds, not safety requirements ──
-        // isConnected = lastPacket within connectionTimeout (2s default). We add a second level:
-        //   DELAYED = 2..5s without packet, LOST = >5s or never.
         string connLabel; Color connBg; Color connDot;
-        bool never = dataReceiver.LastPacketAgeSeconds < 0; // no packet yet
-        float age = (float)dataReceiver.LastPacketAgeSeconds;
         if (never || age > delayedThreshold)
         {
             connLabel = "CONNECTION LOST"; connBg = new Color(0.78f,0.30f,0.30f,0.16f); connDot = DroneUIFX.AERO_RED;
@@ -179,281 +178,407 @@ public class DroneUIUpdater : MonoBehaviour
         {
             connLabel = "CONNECTED"; connBg = new Color(0.26f,0.74f,0.52f,0.14f); connDot = DroneUIFX.AERO_GREEN;
         }
-        if (connectionPill != null) connectionPill.SetState(connBg, connDot, connLabel);
-        // legacy text alias
+        connectionPill?.SetState(connBg, connDot, connLabel);
         SetText(connectionText, connLabel);
 
-        // Also push to HUD armed/mode even when no new packet (they are sticky)
-        var d0 = dataReceiver.latestData;
-        SetText(flightModeText, d0.flight_mode ?? "UNKNOWN");
-        SetText(hudModeText, d0.flight_mode ?? "UNKNOWN");
-        bool armed0 = d0.armed;
-        SetText(armedText, armed0 ? "ARMED" : "DISARMED");
-        SetText(hudArmedText, armed0 ? "ARMED" : "DISARMED");
-        if (armedText != null) armedText.color = armed0 ? DroneUIFX.AERO_GREEN : DroneUIFX.AERO_AMBER;
-        if (hudArmedText != null) hudArmedText.color = armed0 ? DroneUIFX.AERO_GREEN : DroneUIFX.AERO_AMBER;
-        string normalizedMode = (d0.flight_mode ?? "").Replace(" ", "_").ToUpperInvariant();
+        bool heartbeatFresh = dataReceiver.HeartbeatFresh;
+        bool armed = heartbeatFresh && d.armed;
+        string mode = heartbeatFresh ? d.flight_mode : "UNKNOWN";
+        SetText(flightModeText, mode);
+        SetText(hudModeText, mode);
+        SetText(armedText, heartbeatFresh ? armed ? "ARMED" : "DISARMED" : "UNKNOWN");
+        SetText(hudArmedText, heartbeatFresh ? armed ? "ARMED" : "DISARMED" : "UNKNOWN");
+        SetTextColor(armedText, !heartbeatFresh ? COL_STALE : armed ? DroneUIFX.AERO_GREEN : DroneUIFX.AERO_AMBER);
+        SetTextColor(hudArmedText, !heartbeatFresh ? COL_STALE : armed ? DroneUIFX.AERO_GREEN : DroneUIFX.AERO_AMBER);
+        string normalizedMode = heartbeatFresh ? (d.flight_mode ?? "").ToUpperInvariant() : "";
         stabilizeButtonStyle?.SetSelected(normalizedMode == "STABILIZE");
         altHoldButtonStyle?.SetSelected(normalizedMode == "ALT_HOLD");
-        posHoldButtonStyle?.SetSelected(normalizedMode == "POSHOLD" || normalizedMode == "POS_HOLD");
+        posHoldButtonStyle?.SetSelected(normalizedMode == "POSHOLD");
 
-        // ── Latency pill + gauge ────────────────────────────────────────
-        var ls = dataReceiver.latencyStats;
-        if (ls.min < float.MaxValue)
+        bool linkFresh = dataReceiver.isConnected && ls.min < float.MaxValue;
+        if (linkFresh)
         {
-            // legacy rows — units baked in for right-panel text-first rows
             SetText(latMeanText, $"{ls.mean:F0}");
             SetText(latMinText,  $"{ls.min:F1}");
             SetText(latMaxText,  $"{ls.max:F1}");
             SetText(latVarText,  $"{Mathf.Sqrt(Mathf.Max(0f, ls.variance)):F1}");
-
-            string latStr = $"{ls.mean:F0} ms";
-            SetText(latencyText, latStr);
-            // pill colour by latency (UI presentation)
-            Color latBg, latDot; string latLabel = $"{ls.mean:F0} ms";
+            string latLabel = $"{ls.mean:F0} ms";
+            SetText(latencyText, latLabel);
+            Color latBg, latDot;
             if (ls.mean >= latencyCriticalMs) { latBg = new Color(0.78f,0.30f,0.30f,0.14f); latDot = DroneUIFX.AERO_RED; }
             else if (ls.mean >= latencyHighMs) { latBg = new Color(0.86f,0.62f,0.22f,0.14f); latDot = DroneUIFX.AERO_AMBER; }
             else { latBg = new Color(0.26f,0.74f,0.52f,0.12f); latDot = DroneUIFX.AERO_GREEN; }
-            if (latencyPill != null) latencyPill.SetState(latBg, latDot, latLabel);
+            latencyPill?.SetState(latBg, latDot, latLabel);
             linkSignalBars?.SetQuality01(1f - Mathf.Clamp01(ls.mean / latencyGaugeMaxMs));
-
             if (latencyGauge != null)
             {
                 latencyGauge.SetTarget01(1f - Mathf.Clamp01(ls.mean / latencyGaugeMaxMs));
                 if (latencyGauge.valueText != null) latencyGauge.valueText.text = $"{ls.mean:F0}";
             }
-            if (latencyGraph != null && latencyGraphValue != null)
+            if (latencyGraphValue != null)
             {
-                // push handled on new packet below; keep header updated even without new packet
                 latencyGraphValue.text = $"{ls.mean:F0} ms";
-                latencyGraphValue.color = ls.mean >= latencyCriticalMs ? DroneUIFX.AERO_RED : ls.mean >= latencyHighMs ? DroneUIFX.AERO_AMBER : DroneUIFX.AERO_NUM;
+                latencyGraphValue.color = ls.mean >= latencyCriticalMs ? DroneUIFX.AERO_RED
+                    : ls.mean >= latencyHighMs ? DroneUIFX.AERO_AMBER : DroneUIFX.AERO_NUM;
             }
         }
         else
         {
-            if (latencyPill != null) latencyPill.SetState(new Color(0.14f,0.17f,0.22f,1f), COL_STALE, "-- ms");
+            latencyPill?.SetState(new Color(0.14f,0.17f,0.22f,1f), COL_STALE, "-- ms");
             SetText(latencyText, "-- ms");
+            SetText(latMeanText, "--"); SetText(latMinText, "--");
+            SetText(latMaxText, "--"); SetText(latVarText, "--");
+            if (latencyGauge?.valueText != null) latencyGauge.valueText.text = "--";
+            if (latencyGraphValue != null) latencyGraphValue.text = "-- ms";
             linkSignalBars?.SetQuality01(0f);
         }
+        latencyGauge?.SetAvailable(linkFresh);
 
-        // packet rate (pkts/s) — update once per second window
+        bool hasNewData = dataReceiver.newDataAvailable;
+        if (hasNewData)
+        {
+            dataReceiver.newDataAvailable = false;
+            packets++;
+            rateCount++;
+            SetText(packetCountText, packets.ToString());
+            SetText(frameCountText, packets.ToString());
+        }
         rateWindow += Time.deltaTime;
         if (rateWindow >= 1f)
         {
             displayedRate = rateCount / rateWindow;
-            rateWindow = 0f; rateCount = 0;
+            rateWindow = 0f;
+            rateCount = 0;
             SetText(packetRateText, $"{displayedRate:F1}");
         }
         SetText(packetLossText, "--");
-        // sats top bar + right panel
-        if (d0.satellites >= 0)
+
+        bool gpsFresh = dataReceiver.GpsFresh;
+        bool gpsValid = dataReceiver.GpsFixValid;
+        if (gpsFresh && d.satellites >= 0)
         {
-            string satStr = d0.satellites.ToString();
+            string satStr = d.satellites.ToString();
             SetText(satTopText, satStr + " SAT");
             SetText(gpsSatText, satStr);
-            Color sc = d0.satellites < gpsDegradedSats ? DroneUIFX.AERO_AMBER : DroneUIFX.AERO_NUM;
-            if (satTopText != null) satTopText.color = sc;
-            if (gpsSatText != null) gpsSatText.color = sc;
+            Color satelliteColor = gpsValid && d.satellites >= gpsDegradedSats
+                ? DroneUIFX.AERO_NUM : DroneUIFX.AERO_AMBER;
+            SetTextColor(satTopText, satelliteColor);
+            SetTextColor(gpsSatText, satelliteColor);
         }
         else
         {
             SetText(satTopText, "-- SAT");
             SetText(gpsSatText, "--");
-            if (satTopText != null) satTopText.color = COL_STALE;
-            if (gpsSatText != null) gpsSatText.color = COL_STALE;
+            SetTextColor(satTopText, COL_STALE);
+            SetTextColor(gpsSatText, COL_STALE);
         }
 
-        SetStatus(telemetryStatusText, dataReceiver.isConnected ? "OK" : "LOST",
-            dataReceiver.isConnected ? DroneUIFX.AERO_GREEN : DroneUIFX.AERO_RED);
-        bool gpsFix = d0.satellites >= gpsDegradedSats;
-        string gpsState = d0.satellites < 0 ? "WAIT" : gpsFix ? "OK" : "DEGRADED";
-        Color gpsStateColor = d0.satellites < 0 ? COL_STALE : gpsFix ? DroneUIFX.AERO_GREEN : DroneUIFX.AERO_AMBER;
-        SetStatus(gpsStatusText, gpsState, gpsStateColor);
-        SetStatus(imuStatusText, dataReceiver.isConnected ? "OK" : "WAIT",
-            dataReceiver.isConnected ? DroneUIFX.AERO_GREEN : COL_STALE);
-        SetStatus(barometerStatusText, dataReceiver.isConnected ? "OK" : "WAIT",
-            dataReceiver.isConnected ? DroneUIFX.AERO_GREEN : COL_STALE);
+        string telemetryState = dataReceiver.isConnected ? "OK" : never || age > delayedThreshold ? "LOST" : "STALE";
+        Color telemetryColor = dataReceiver.isConnected ? DroneUIFX.AERO_GREEN
+            : telemetryState == "LOST" ? DroneUIFX.AERO_RED : DroneUIFX.AERO_AMBER;
+        SetStatus(telemetryStatusText, telemetryState, telemetryColor);
+        UpdateGpsStatus(d, gpsFresh, gpsValid);
+        UpdateSensorStatus(imuStatusText, DroneDataReceiver.Sensor3dGyro | DroneDataReceiver.Sensor3dAccel);
+        UpdateSensorStatus(barometerStatusText, DroneDataReceiver.SensorAbsolutePressure);
+        UpdateCommandPresentation(armed);
 
-        if (!dataReceiver.newDataAvailable) return;
-        dataReceiver.newDataAvailable = false;
-        packets++; rateCount++;
-        SetText(packetCountText, packets.ToString());
-        SetText(frameCountText, packets.ToString());
+        bool positionFresh = dataReceiver.PositionFresh;
+        SetTelemetryValue(xText, positionFresh, $"{d.x:F2}");
+        SetTelemetryValue(yText, positionFresh, $"{d.y:F2}");
+        SetTelemetryValue(zText, positionFresh, $"{d.z:F2}");
+        SetTelemetryValue(speedText, positionFresh, $"{d.speed:F2}");
+        SetTelemetryValue(verticalSpeedText, positionFresh, $"{d.vz:F2}");
+        SetText(hudAltText, positionFresh ? $"{d.z:F1} m" : "-- m");
+        SetText(hudSpeedText, positionFresh ? $"{d.speed:F1} m/s" : "-- m/s");
+        SetTextColor(hudAltText, !positionFresh ? COL_STALE
+            : d.z < 0.15f ? DroneUIFX.AERO_AMBER : DroneUIFX.AERO_NUM);
 
-        var d = dataReceiver.latestData;
-
-        // ── Position (LOCAL_POSITION_NED) ───────────────────────────────
-        SetText(xText, $"{d.x:F2}");
-        SetText(yText, $"{d.y:F2}");
-        SetText(zText, $"{d.z:F2}");
-
-        // HUD altitude/speed
-        SetText(hudAltText, $"{d.z:F1} m");
-        SetText(hudSpeedText, $"{d.speed:F1} m/s");
-        if (hudAltText != null) hudAltText.color = d.z < 0.15f ? DroneUIFX.AERO_AMBER : DroneUIFX.AERO_NUM;
-
-        // ── Attitude ───────────────────────────────────────────────────
-        SetText(pitchText, $"{d.pitch:F1}°");
-        SetText(rollText,  $"{d.roll:F1}°");
-        SetText(yawText,   $"{d.yaw:F1}°");
-        string heading = $"{WrapYaw(d.yaw):000}°";
+        bool attitudeFresh = dataReceiver.AttitudeFresh;
+        SetTelemetryValue(pitchText, attitudeFresh, $"{d.pitch:F1}°");
+        SetTelemetryValue(rollText, attitudeFresh, $"{d.roll:F1}°");
+        SetTelemetryValue(yawText, attitudeFresh, $"{d.yaw:F1}°");
+        string heading = attitudeFresh ? $"{WrapYaw(d.yaw):000}°" : "---°";
         SetText(hudHeadingText, heading);
         SetText(topHeadingText, heading);
         SetText(centerHeadingText, heading);
-        horizon?.SetAttitude(d.pitch, d.roll);
-        compassRibbon?.SetHeading(d.yaw);
-        mapView?.SetTelemetry(d.x, d.y, d.lat, d.lon, d.yaw);
+        SetTextColor(topHeadingText, attitudeFresh ? DroneUIFX.AERO_NUM : COL_STALE);
+        if (attitudeFresh)
+        {
+            horizon?.SetAttitude(d.pitch, d.roll);
+            compassRibbon?.SetHeading(d.yaw);
+        }
+        horizon?.SetAvailable(attitudeFresh);
+        compassRibbon?.SetAvailable(attitudeFresh);
 
-        // ── GPS ────────────────────────────────────────────────────────
-        Color gpsCol = d.satellites >= 0 ? DroneUIFX.AERO_NUM : COL_STALE;
-        SetText(latText,    $"{d.lat:F4}");
-        SetText(lonText,    $"{d.lon:F4}");
-        SetText(gpsAltText, $"{d.gps_alt:F1}");
-        SetText(hudLatText, $"{d.lat:F4}");
-        SetText(hudLonText, $"{d.lon:F4}");
-        SetText(hudGpsAltText, $"{d.gps_alt:F1} m");
-        SetTextColor(latText, gpsCol); SetTextColor(lonText, gpsCol); SetTextColor(gpsAltText, gpsCol);
+        mapView?.SetTelemetry(
+            d.x, d.y, d.lat, d.lon, d.yaw,
+            positionFresh, gpsValid, attitudeFresh,
+            dataReceiver.HomePositionValid,
+            d.homeNorth, d.homeEast, d.homeLat, d.homeLon);
+
+        SetTelemetryValue(latText, gpsValid, $"{d.lat:F4}");
+        SetTelemetryValue(lonText, gpsValid, $"{d.lon:F4}");
+        SetTelemetryValue(gpsAltText, gpsValid, $"{d.gps_alt:F1}");
+        SetText(hudLatText, gpsValid ? $"{d.lat:F4}" : "--");
+        SetText(hudLonText, gpsValid ? $"{d.lon:F4}" : "--");
+        SetText(hudGpsAltText, gpsValid ? $"{d.gps_alt:F1} m" : "-- m");
 
         float gpsQuality = ComputeGpsQuality(d);
         gpsSignalBars?.SetQuality01(gpsQuality);
         if (satelliteRing != null)
         {
-            if (d.satellites >= 0)
-            {
-                satelliteRing.SetTarget01(Mathf.Clamp01(d.satellites / satellitesForFullBars));
-                if (satelliteRing.valueText != null) satelliteRing.valueText.text = d.satellites.ToString();
-                if (satelliteRing.valueText != null) satelliteRing.valueText.color = d.satellites < gpsDegradedSats ? DroneUIFX.AERO_AMBER : Color.white;
-            }
-            else
+            if (gpsFresh && d.satellites >= 0)
             {
                 satelliteRing.SetTarget01(gpsQuality);
-                if (satelliteRing.valueText != null) satelliteRing.valueText.text = "--";
+                if (satelliteRing.valueText != null)
+                {
+                    satelliteRing.valueText.text = d.satellites.ToString();
+                    satelliteRing.valueText.color = gpsValid && d.satellites >= gpsDegradedSats
+                        ? Color.white : DroneUIFX.AERO_AMBER;
+                }
+            }
+            else if (satelliteRing.valueText != null)
+            {
+                satelliteRing.SetTarget01(0f);
+                satelliteRing.valueText.text = "--";
+                satelliteRing.valueText.color = COL_STALE;
             }
         }
+        satelliteRing?.SetAvailable(gpsFresh);
 
-        // ── Electrical ─────────────────────────────────────────────────
-        SetText(voltageText, $"{d.voltage:F2}");
-        SetText(currentText, $"{d.current:F1}");
-        if (voltageText != null) voltageText.color = d.voltage > 0.01f && d.voltage < 14.0f ? DroneUIFX.AERO_AMBER : DroneUIFX.AERO_NUM;
+        bool systemFresh = dataReceiver.SystemStatusFresh;
+        bool voltageValid = systemFresh && d.voltage >= 0f;
+        bool currentValid = systemFresh && d.current >= 0f;
+        SetTelemetryValue(voltageText, voltageValid, $"{d.voltage:F2}");
+        SetTelemetryValue(currentText, currentValid, $"{d.current:F1}");
+        if (voltageText != null && voltageValid)
+            voltageText.color = d.voltage < 14.0f ? DroneUIFX.AERO_AMBER : DroneUIFX.AERO_NUM;
 
-        // ── Speed ──────────────────────────────────────────────────────
-        SetText(speedText, $"{d.speed:F2}");
-        SetText(verticalSpeedText, $"{d.vz:F2}");
-
-        // ── Graph headers update per packet; 5 Hz samples retain 60 seconds. ──
-        bool sampleGraphs = graphSampleElapsed >= GraphSamplePeriod;
+        bool sampleGraphs = hasNewData && graphSampleElapsed >= GraphSamplePeriod;
         if (sampleGraphs) graphSampleElapsed %= GraphSamplePeriod;
         if (altitudeGraph != null)
         {
-            if (sampleGraphs) altitudeGraph.Push(d.z);
-            if (altitudeGraphValue != null) altitudeGraphValue.text = $"{d.z:F1} m";
+            if (sampleGraphs && positionFresh) altitudeGraph.Push(d.z);
+            if (altitudeGraphValue != null) altitudeGraphValue.text = positionFresh ? $"{d.z:F1} m" : "-- m";
         }
         if (speedGraph != null)
         {
-            if (sampleGraphs) speedGraph.Push(d.speed);
-            if (speedGraphValue != null) speedGraphValue.text = $"{d.speed:F2} m/s";
+            if (sampleGraphs && positionFresh) speedGraph.Push(d.speed);
+            if (speedGraphValue != null) speedGraphValue.text = positionFresh ? $"{d.speed:F2} m/s" : "-- m/s";
         }
-        if (latencyGraph != null)
-        {
-            float lat = ls.min < float.MaxValue ? ls.mean : 0f;
-            if (sampleGraphs) latencyGraph.Push(lat);
-            if (latencyGraphValue != null) latencyGraphValue.text = $"{lat:F0} ms";
-        }
+        if (latencyGraph != null && sampleGraphs && linkFresh) latencyGraph.Push(ls.mean);
 
-        // ── Battery ring + flat bar ────────────────────────────────────────
+        bool batteryValid = systemFresh && d.battery_remaining >= 0;
         int batt = d.battery_remaining;
-        SetText(batteryPercentText, $"{batt}%");
-        if (batteryRing != null) batteryRing.SetTarget01(batt / 100f);
-        if (batteryBar != null) batteryBar.SetValue01(batt / 100f);
+        SetText(batteryPercentText, batteryValid ? $"{batt}%" : "--%");
+        if (batteryValid)
+        {
+            batteryRing?.SetTarget01(batt / 100f);
+            batteryBar?.SetValue01(batt / 100f);
+        }
+        batteryRing?.SetAvailable(batteryValid);
+        batteryBar?.SetAvailable(batteryValid);
         if (batteryGraph != null)
         {
-            if (sampleGraphs) batteryGraph.Push(batt);
-            if (batteryGraphValue != null) batteryGraphValue.text = $"{batt}%";
+            if (sampleGraphs && batteryValid) batteryGraph.Push(batt);
+            if (batteryGraphValue != null) batteryGraphValue.text = batteryValid ? $"{batt}%" : "--%";
         }
         if (batteryPercentText != null)
         {
-            if (batt <= batteryCriticalPercent) batteryPercentText.color = DroneUIFX.AERO_RED;
-            else if (batt <= batteryLowPercent) batteryPercentText.color = DroneUIFX.AERO_AMBER;
-            else batteryPercentText.color = DroneUIFX.AERO_NUM;
+            batteryPercentText.color = !batteryValid ? COL_STALE
+                : batt <= batteryCriticalPercent ? DroneUIFX.AERO_RED
+                : batt <= batteryLowPercent ? DroneUIFX.AERO_AMBER : DroneUIFX.AERO_NUM;
         }
-        if (batt <= batteryCriticalPercent && !batteryCriticalLandSent)
-        {
-            Debug.LogWarning($"[UI] Battery critical ({batt}%) → LAND (UI presentation threshold {batteryCriticalPercent}%)");
-            dataReceiver.SendCommand("LAND");
-            batteryCriticalLandSent = true;
-        }
-        if (batt > batteryCriticalPercent) batteryCriticalLandSent = false;
 
-        // ── Vibration bars ─────────────────────────────────────────────
-        vibXBar?.SetValue(d.vibration_x);
-        vibYBar?.SetValue(d.vibration_y);
-        vibZBar?.SetValue(d.vibration_z);
-        UpdateVibrationField(vibXText, d.vibration_x);
-        UpdateVibrationField(vibYText, d.vibration_y);
-        UpdateVibrationField(vibZText, d.vibration_z);
+        bool vibrationFresh = dataReceiver.VibrationFresh;
+        vibXBar?.SetAvailable(vibrationFresh);
+        vibYBar?.SetAvailable(vibrationFresh);
+        vibZBar?.SetAvailable(vibrationFresh);
+        if (vibrationFresh)
+        {
+            vibXBar?.SetValue(d.vibration_x);
+            vibYBar?.SetValue(d.vibration_y);
+            vibZBar?.SetValue(d.vibration_z);
+        }
+        UpdateVibrationField(vibXText, d.vibration_x, vibrationFresh);
+        UpdateVibrationField(vibYText, d.vibration_y, vibrationFresh);
+        UpdateVibrationField(vibZText, d.vibration_z, vibrationFresh);
         float maxVib = Mathf.Max(Mathf.Abs(d.vibration_x), Mathf.Abs(d.vibration_y), Mathf.Abs(d.vibration_z));
         if (vibStatusText != null)
         {
-            if (maxVib >= vibCriticalThreshold) { vibStatusText.text = "CRITICAL"; vibStatusText.color = DroneUIFX.AERO_RED; }
+            if (!vibrationFresh) { vibStatusText.text = "UNKNOWN"; vibStatusText.color = COL_STALE; }
+            else if (maxVib >= vibCriticalThreshold) { vibStatusText.text = "CRITICAL"; vibStatusText.color = DroneUIFX.AERO_RED; }
             else if (maxVib >= vibHighThreshold) { vibStatusText.text = "HIGH"; vibStatusText.color = DroneUIFX.AERO_AMBER; }
             else { vibStatusText.text = "OK"; vibStatusText.color = DroneUIFX.AERO_GREEN; }
         }
 
-        // ── Alarm banner — now covers 5 verified conditions (UI presentation) ──
-        bool vibAlarm = dataReceiver.vibrationAlarmActive;
-        bool battCrit = batt <= batteryCriticalPercent;
-        bool battLow  = batt <= batteryLowPercent && !battCrit;
-        bool linkHigh = ls.min < float.MaxValue && ls.mean >= latencyCriticalMs;
-        bool gpsDegraded = d.satellites >= 0 && d.satellites < gpsDegradedSats;
-        bool connLost = !dataReceiver.isConnected && dataReceiver.LastPacketAgeSeconds > delayedThreshold;
-
-        bool anyCritical = vibAlarm || battCrit || connLost;
-        bool anyWarn = battLow || linkHigh || gpsDegraded;
-
-        if (alarmBannerBg != null)
-        {
-            if (anyCritical || anyWarn)
-            {
-                alarmFlashTimer += Time.deltaTime;
-                bool flash = anyCritical ? ((int)(alarmFlashTimer * 4) % 2 == 0) : ((int)(alarmFlashTimer * 2) % 2 == 0);
-                Color bgCol = anyCritical ? BG_ALARM : BG_WARN;
-                alarmBannerBg.color = flash ? bgCol : new Color(0,0,0,0);
-                System.Text.StringBuilder sb = new System.Text.StringBuilder();
-                if (vibAlarm) sb.Append("VIBRATION CRITICAL — AUTO LAND   ");
-                if (battCrit) sb.Append("BATTERY CRITICAL — LANDING   ");
-                else if (battLow) sb.Append("BATTERY LOW   ");
-                if (connLost) sb.Append("LINK LOST   ");
-                else if (linkHigh) sb.Append("HIGH LATENCY   ");
-                if (gpsDegraded) sb.Append("GPS DEGRADED   ");
-                string msg = sb.ToString().Trim();
-                if (msg.Length == 0) msg = "CHECK TELEMETRY";
-                SetText(alarmBannerText, (anyCritical ? "!!  " : "!  ") + msg);
-                if (alarmBannerText != null) alarmBannerText.fontSize = anyCritical ? 13 : 12;
-            }
-            else
-            {
-                alarmFlashTimer = 0f;
-                alarmBannerBg.color = new Color(0,0,0,0);
-                SetText(alarmBannerText, "");
-            }
-        }
+        UpdateAlarm(d, ls, never, age, batteryValid, gpsFresh, gpsValid, linkFresh);
     }
 
     float WrapYaw(float y) { y %= 360f; if (y < 0) y += 360f; return y; }
 
     float ComputeGpsQuality(DroneData d)
     {
-        if (!dataReceiver.isConnected) return 0f;
-        if (d.satellites >= 0) return Mathf.Clamp01(d.satellites / satellitesForFullBars);
-        var ls = dataReceiver.latencyStats;
-        if (ls.min >= float.MaxValue) return 0.5f;
-        float t = Mathf.InverseLerp(gpsPoorLatencyMs, gpsGoodLatencyMs, ls.mean);
-        return Mathf.Clamp01(t);
+        if (!dataReceiver.GpsFixValid || d.satellites < 0) return 0f;
+        return Mathf.Clamp01(d.satellites / satellitesForFullBars);
     }
 
-    void UpdateVibrationField(TextMeshProUGUI t, float val)
+    void UpdateGpsStatus(DroneData d, bool gpsFresh, bool gpsValid)
+    {
+        if (!gpsFresh)
+        {
+            SetStatus(gpsStatusText, "UNKNOWN", COL_STALE);
+            return;
+        }
+        bool healthReported = dataReceiver.IsSensorPresent(DroneDataReceiver.SensorGps);
+        if (healthReported && !dataReceiver.IsSensorEnabled(DroneDataReceiver.SensorGps))
+        {
+            SetStatus(gpsStatusText, "DISABLED", DroneUIFX.AERO_AMBER);
+            return;
+        }
+        if (healthReported && !dataReceiver.IsSensorHealthy(DroneDataReceiver.SensorGps))
+        {
+            SetStatus(gpsStatusText, "FAULT", DroneUIFX.AERO_RED);
+            return;
+        }
+        if (!gpsValid)
+        {
+            SetStatus(gpsStatusText, "NO FIX", DroneUIFX.AERO_AMBER);
+            return;
+        }
+        bool degraded = d.satellites >= 0 && d.satellites < gpsDegradedSats;
+        string state = !healthReported ? "FIX ONLY" : degraded ? "DEGRADED" : "OK";
+        Color color = !healthReported || degraded ? DroneUIFX.AERO_AMBER : DroneUIFX.AERO_GREEN;
+        SetStatus(gpsStatusText, state, color);
+    }
+
+    void UpdateSensorStatus(TextMeshProUGUI target, uint mask)
+    {
+        if (!dataReceiver.SystemStatusFresh)
+        {
+            SetStatus(target, "UNKNOWN", COL_STALE);
+        }
+        else if (!dataReceiver.IsSensorPresent(mask))
+        {
+            SetStatus(target, "NOT PRESENT", COL_STALE);
+        }
+        else if (!dataReceiver.IsSensorEnabled(mask))
+        {
+            SetStatus(target, "DISABLED", DroneUIFX.AERO_AMBER);
+        }
+        else if (!dataReceiver.IsSensorHealthy(mask))
+        {
+            SetStatus(target, "FAULT", DroneUIFX.AERO_RED);
+        }
+        else
+        {
+            SetStatus(target, "OK", DroneUIFX.AERO_GREEN);
+        }
+    }
+
+    void UpdateCommandPresentation(bool armed)
+    {
+        bool imuReady = dataReceiver.IsSensorPresent(DroneDataReceiver.Sensor3dGyro | DroneDataReceiver.Sensor3dAccel)
+            && dataReceiver.IsSensorEnabled(DroneDataReceiver.Sensor3dGyro | DroneDataReceiver.Sensor3dAccel)
+            && dataReceiver.IsSensorHealthy(DroneDataReceiver.Sensor3dGyro | DroneDataReceiver.Sensor3dAccel);
+        bool barometerReady = dataReceiver.IsSensorPresent(DroneDataReceiver.SensorAbsolutePressure)
+            && dataReceiver.IsSensorEnabled(DroneDataReceiver.SensorAbsolutePressure)
+            && dataReceiver.IsSensorHealthy(DroneDataReceiver.SensorAbsolutePressure);
+        bool gpsReady = dataReceiver.IsSensorPresent(DroneDataReceiver.SensorGps)
+            && dataReceiver.IsSensorEnabled(DroneDataReceiver.SensorGps)
+            && dataReceiver.IsSensorHealthy(DroneDataReceiver.SensorGps)
+            && dataReceiver.GpsFixValid;
+        bool ready = dataReceiver.CanSendCommands;
+        stabilizeButtonStyle?.SetInteractable(ready && imuReady);
+        altHoldButtonStyle?.SetInteractable(ready && imuReady && barometerReady);
+        posHoldButtonStyle?.SetInteractable(ready && imuReady && barometerReady && gpsReady);
+        landButtonStyle?.SetInteractable(ready && armed);
+        forceDisarmButtonStyle?.SetInteractable(ready && armed);
+
+        if (commandStatusText == null) return;
+        DroneCommandStatus status = dataReceiver.commandStatus;
+        if (status.state == DroneCommandState.None)
+        {
+            commandStatusText.text = ready ? "COMMAND LINK READY" : "COMMANDS LOCKED";
+            commandStatusText.color = ready ? DroneUIFX.AERO_GREEN : COL_STALE;
+            return;
+        }
+
+        string state = status.state.ToString().ToUpperInvariant();
+        commandStatusText.text = $"{status.command}  /  {state}  /  {status.detail}";
+        switch (status.state)
+        {
+            case DroneCommandState.Completed:
+                commandStatusText.color = DroneUIFX.AERO_GREEN;
+                break;
+            case DroneCommandState.Sent:
+            case DroneCommandState.Accepted:
+            case DroneCommandState.InProgress:
+                commandStatusText.color = DroneUIFX.AERO_AMBER;
+                break;
+            default:
+                commandStatusText.color = DroneUIFX.AERO_RED;
+                break;
+        }
+    }
+
+    void UpdateAlarm(DroneData d, LatencyStats ls, bool never, float packetAge,
+        bool batteryValid, bool gpsFresh, bool gpsValid, bool linkFresh)
+    {
+        bool vibrationCritical = dataReceiver.VibrationFresh && dataReceiver.vibrationAlarmActive;
+        bool batteryCritical = batteryValid && d.battery_remaining <= batteryCriticalPercent;
+        bool batteryLow = batteryValid && d.battery_remaining <= batteryLowPercent && !batteryCritical;
+        bool latencyHigh = linkFresh && ls.mean >= latencyCriticalMs;
+        bool gpsNoFix = gpsFresh && !gpsValid;
+        bool gpsStale = dataReceiver.isConnected && !gpsFresh;
+        bool connectionLost = never || packetAge > delayedThreshold;
+
+        bool anyCritical = vibrationCritical || batteryCritical || connectionLost;
+        bool anyWarning = batteryLow || latencyHigh || gpsNoFix || gpsStale;
+        if (alarmBannerBg == null) return;
+
+        if (!anyCritical && !anyWarning)
+        {
+            alarmFlashTimer = 0f;
+            alarmBannerBg.color = new Color(0, 0, 0, 0);
+            SetText(alarmBannerText, "");
+            return;
+        }
+
+        alarmFlashTimer += Time.deltaTime;
+        bool flash = anyCritical
+            ? (int)(alarmFlashTimer * 4) % 2 == 0
+            : (int)(alarmFlashTimer * 2) % 2 == 0;
+        Color background = anyCritical ? BG_ALARM : BG_WARN;
+        alarmBannerBg.color = flash ? background : new Color(0, 0, 0, 0);
+        var message = new System.Text.StringBuilder();
+        if (vibrationCritical) message.Append("VIBRATION CRITICAL   ");
+        if (batteryCritical) message.Append("BATTERY CRITICAL - LAND NOW   ");
+        else if (batteryLow) message.Append("BATTERY LOW   ");
+        if (connectionLost) message.Append("LINK LOST   ");
+        else if (latencyHigh) message.Append("HIGH LATENCY   ");
+        if (gpsNoFix) message.Append("GPS NO FIX   ");
+        else if (gpsStale) message.Append("GPS TELEMETRY STALE   ");
+        SetText(alarmBannerText, (anyCritical ? "!!  " : "!  ") + message.ToString().Trim());
+        if (alarmBannerText != null) alarmBannerText.fontSize = anyCritical ? 13 : 12;
+    }
+
+    void SetTelemetryValue(TextMeshProUGUI target, bool valid, string value)
+    {
+        if (target == null) return;
+        target.text = valid ? value : "--";
+        target.color = valid ? DroneUIFX.AERO_NUM : COL_STALE;
+    }
+
+    void UpdateVibrationField(TextMeshProUGUI t, float val, bool valid)
     {
         if (t == null) return;
+        if (!valid)
+        {
+            t.text = "--";
+            t.color = COL_STALE;
+            return;
+        }
         t.text = $"{val:F2}";
         float a = Mathf.Abs(val);
         if (a >= vibCriticalThreshold) t.color = DroneUIFX.AERO_RED;

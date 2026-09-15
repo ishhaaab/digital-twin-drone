@@ -381,8 +381,10 @@ public static class DroneUIFX
         float displayValue;
         float targetValue;
         float pulsePhase;
+        bool available = true;
 
         public void SetTarget01(float v) => targetValue = Mathf.Clamp01(v);
+        public void SetAvailable(bool value) => available = value;
 
         public void Tick(float dt)
         {
@@ -390,13 +392,13 @@ public static class DroneUIFX
             if (fill != null)
             {
                 fill.fillAmount = displayValue;
-                var c = colorRamp(displayValue);
+                var c = available ? colorRamp(displayValue) : AERO_TEXT_DIM;
                 fill.color = c;
 
                 if (glow != null)
                 {
-                    float baseAlpha = Mathf.Lerp(0.10f, 0.45f, displayValue);
-                    if (pulseWhenHot && displayValue >= pulseThreshold)
+                    float baseAlpha = available ? Mathf.Lerp(0.10f, 0.45f, displayValue) : 0f;
+                    if (available && pulseWhenHot && displayValue >= pulseThreshold)
                     {
                         pulsePhase += dt * 6f;
                         baseAlpha = 0.35f + 0.35f * (0.5f + 0.5f * Mathf.Sin(pulsePhase));
@@ -539,6 +541,7 @@ public static class DroneUIFX
         public TextMeshProUGUI valueText;
         public float maxAbsValue = 80f; // full-scale value for the bar (m/s^2)
         float displayFrac, targetFrac;
+        bool available = true;
 
         public void SetValue(float raw)
         {
@@ -546,13 +549,15 @@ public static class DroneUIFX
             if (valueText != null) valueText.text = $"{raw:F2}";
         }
 
+        public void SetAvailable(bool value) => available = value;
+
         public void Tick(float dt)
         {
             displayFrac = Mathf.Lerp(displayFrac, targetFrac, dt * 10f);
             if (fill != null)
             {
                 fill.fillAmount = displayFrac;
-                fill.color = RampBadHigh(displayFrac);
+                fill.color = available ? RampBadHigh(displayFrac) : AERO_TEXT_DIM;
             }
         }
     }
@@ -625,8 +630,10 @@ public static class DroneUIFX
         public Func<float, Color> colorRamp = RampGoodHigh;
         public float smoothSpeed = 8f;
         float displayFrac, targetFrac;
+        bool available = true;
 
         public void SetValue01(float v) => targetFrac = Mathf.Clamp01(v);
+        public void SetAvailable(bool value) => available = value;
 
         public float Target => targetFrac;
 
@@ -636,7 +643,7 @@ public static class DroneUIFX
             displayFrac = Mathf.Lerp(displayFrac, targetFrac, dt * smoothSpeed);
             if (Mathf.Abs(displayFrac - targetFrac) < 0.002f) displayFrac = targetFrac;
             fill.fillAmount = displayFrac;
-            fill.color = colorRamp(displayFrac);
+            fill.color = available ? colorRamp(displayFrac) : AERO_TEXT_DIM;
         }
     }
 
@@ -679,10 +686,12 @@ public static class DroneUIFX
     public class CompassRibbonFX : IFxWidget
     {
         public RectTransform tapeContent;
+        public CanvasGroup canvasGroup;
         public float pixelsPerDegree;
         float displayHeading, targetHeading;
 
         public void SetHeading(float degrees) => targetHeading = ((degrees % 360f) + 360f) % 360f;
+        public void SetAvailable(bool value) { if (canvasGroup != null) canvasGroup.alpha = value ? 1f : 0.28f; }
 
         public void Tick(float dt)
         {
@@ -700,7 +709,7 @@ public static class DroneUIFX
     {
         const float pxPerDeg = 7f;
 
-        var root = new GameObject("CompassRibbon", typeof(RectTransform));
+        var root = new GameObject("CompassRibbon", typeof(RectTransform), typeof(CanvasGroup));
         root.transform.SetParent(parent, false);
         var le = root.AddComponent<LayoutElement>();
         le.preferredWidth = width;
@@ -775,7 +784,12 @@ public static class DroneUIFX
         ptrRT.sizeDelta = new Vector2(2, 12);
         ptrRT.anchoredPosition = new Vector2(0, 1);
 
-        return new CompassRibbonFX { tapeContent = contentRT, pixelsPerDegree = pxPerDeg };
+        return new CompassRibbonFX
+        {
+            tapeContent = contentRT,
+            canvasGroup = root.GetComponent<CanvasGroup>(),
+            pixelsPerDegree = pxPerDeg
+        };
     }
 
     // ═════════════════════════════════════════════════════════════════════
@@ -786,6 +800,7 @@ public static class DroneUIFX
     {
         public RectTransform horizonPlate; // rotates with roll, translates with pitch
         public RectTransform rollPointer;   // fixed bank-angle needle against the bezel scale
+        public CanvasGroup canvasGroup;
         public float pixelsPerDegreePitch = 4f;
         public float pitchClampDeg = 30f;
         float displayPitch, displayRoll, targetPitch, targetRoll;
@@ -795,6 +810,8 @@ public static class DroneUIFX
             targetPitch = Mathf.Clamp(pitchDeg, -pitchClampDeg, pitchClampDeg);
             targetRoll = rollDeg;
         }
+
+        public void SetAvailable(bool value) { if (canvasGroup != null) canvasGroup.alpha = value ? 1f : 0.28f; }
 
         public void Tick(float dt)
         {
@@ -816,7 +833,7 @@ public static class DroneUIFX
     /// fixed aircraft symbol, and a circular mask/bezel.
     public static HorizonFX CreateArtificialHorizon(Transform parent, float diameter)
     {
-        var root = new GameObject("ArtificialHorizon", typeof(RectTransform));
+        var root = new GameObject("ArtificialHorizon", typeof(RectTransform), typeof(CanvasGroup));
         root.transform.SetParent(parent, false);
         var le = root.AddComponent<LayoutElement>();
         le.preferredWidth = diameter;
@@ -941,7 +958,12 @@ public static class DroneUIFX
         // Fixed aircraft symbol — wing bars + centre dot (drawn on root, not the plate)
         MakeAircraftSymbol(root.transform, diameter);
 
-        return new HorizonFX { horizonPlate = plateRT, rollPointer = ptrRT };
+        return new HorizonFX
+        {
+            horizonPlate = plateRT,
+            rollPointer = ptrRT,
+            canvasGroup = root.GetComponent<CanvasGroup>()
+        };
     }
 
     static void MakeScaleTick(Transform parent, float angleDeg, float radius, float len, Color col)
@@ -1294,6 +1316,7 @@ public static class DroneUIFX
         bool selected;
         bool hovered;
         bool pressed;
+        bool interactable = true;
         Color targetFill;
         Color targetBorder;
 
@@ -1301,12 +1324,39 @@ public static class DroneUIFX
         {
             selected = value;
             RefreshTargets();
-            if (label) label.color = selected ? AERO_TEXT : normalTextColor;
-            if (foreground) foreground.color = selected ? AERO_TEXT : normalForegroundColor;
+            RefreshForeground();
+        }
+
+        public void SetInteractable(bool value)
+        {
+            interactable = value;
+            var button = GetComponent<Button>();
+            if (button != null) button.interactable = value;
+            if (!value)
+            {
+                hovered = false;
+                pressed = false;
+            }
+            RefreshTargets();
+            RefreshForeground();
+        }
+
+        void RefreshForeground()
+        {
+            Color textColor = !interactable ? AERO_TEXT_DIM : selected ? AERO_TEXT : normalTextColor;
+            Color iconColor = !interactable ? AERO_TEXT_DIM : selected ? AERO_TEXT : normalForegroundColor;
+            if (label) label.color = textColor;
+            if (foreground) foreground.color = iconColor;
         }
 
         void RefreshTargets()
         {
+            if (!interactable)
+            {
+                targetFill = Color.Lerp(baseColor, AERO_BG, 0.42f);
+                targetBorder = AERO_DIVIDER;
+                return;
+            }
             // Keep the inner fill opaque. A translucent fill reveals the full-size
             // border sprite underneath and turns the entire button cyan.
             Color restingFill = selected ? Color.Lerp(AERO_CARD2, accent, 0.12f) : baseColor;
@@ -1327,6 +1377,7 @@ public static class DroneUIFX
 
         public void OnPointerEnter(PointerEventData e)
         {
+            if (!interactable) return;
             hovered = true;
             RefreshTargets();
         }
@@ -1338,6 +1389,7 @@ public static class DroneUIFX
         }
         public void OnPointerDown(PointerEventData e)
         {
+            if (!interactable) return;
             pressed = true;
             RefreshTargets();
         }

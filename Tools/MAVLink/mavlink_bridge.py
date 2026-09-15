@@ -2,15 +2,14 @@
 """Serial MAVLink -> UDP CSV bridge for the Unity digital-twin visualizer.
 
 Reads MAVLink telemetry from a serial port and forwards it to Unity as comma-
-separated values over UDP. Also listens on a second UDP port for plain-text
-commands from Unity ("LAND", "STABILIZE", ...) and forwards them back to the
-vehicle over MAVLink.
+separated values over UDP. It also listens on a loopback-only UDP port for
+versioned, correlated commands from Unity and forwards them over MAVLink.
 
 This module is import-safe: nothing touches hardware or sockets until main()
 runs, so handle_command()/drain_commands() can be unit-tested with a fake
 master/rx socket and no serial port.
 
-CSV layout (20 fields, indices 0..19):
+CSV layout (37 fields, indices 0..36):
     0  x            NED X (north, m)         LOCAL_POSITION_NED
     1  y            NED Y (east,  m)         LOCAL_POSITION_NED
     2  z            altitude (m, +up)        LOCAL_POSITION_NED (sign-flipped)
@@ -30,7 +29,13 @@ CSV layout (20 fields, indices 0..19):
    16  satellites   count                    GPS_RAW_INT
    17  lat          degrees                  GPS_RAW_INT
    18  lon          degrees                  GPS_RAW_INT
-   19  gps_alt      m (MSL)                  GPS_RAW_INT
+    19  gps_alt      m (MSL)                  GPS_RAW_INT
+    20  version      protocol version         local bridge
+    21..26 source age seconds                 MAVLink receive times
+    27  GPS fix type                          GPS_RAW_INT
+    28..30 sensor present/enabled/health masks SYS_STATUS
+    31  home valid                            HOME_POSITION
+    32..36 home lat/lon/alt/north/east        HOME_POSITION
 
 UDP endpoints:
     TX -> 127.0.0.1:5055   telemetry out to Unity
@@ -49,6 +54,12 @@ import socket
 import time
 
 from pymavlink import mavutil
+from telemetry_protocol import (
+    PROTOCOL_VERSION,
+    decode_command,
+    encode_command_ack,
+    encode_telemetry,
+)
 
 # ================= CONFIG =================
 # Command-line defaults (override with --port/--baud/--firmware).
@@ -72,6 +83,7 @@ MESSAGE_RATES_US = {
     'SYS_STATUS':         200000,  #  5 Hz
     'VIBRATION':          100000,  # 10 Hz
     'GPS_RAW_INT':        1000000, #  1 Hz
+    'HOME_POSITION':      1000000, #  1 Hz when supported
 }
 
 # ---------------------------------------------------------------------------
@@ -117,7 +129,7 @@ def build_parser():
 
 
 def handle_command(master, mode_name_to_id, cmd):
-    """Execute one plain-text command received over the command UDP port.
+    """Execute one validated command received over the command UDP port.
 
     `master` is the active pymavlink connection; `mode_name_to_id` maps
     flight-mode names (e.g. "LOITER") to the firmware's custom_mode number.
@@ -125,7 +137,7 @@ def handle_command(master, mode_name_to_id, cmd):
     """
     cmd = (cmd or "").strip().upper()
     if not cmd:
-        return
+        return None
     # ascii-safe: garbage bytes decode to \ufffd which cp1252 can't print
     safe = cmd.encode("ascii", "backslashreplace").decode("ascii")
     print(f"CMD >>> {safe}")
@@ -136,6 +148,7 @@ def handle_command(master, mode_name_to_id, cmd):
             master.target_system, master.target_component,
             mavutil.mavlink.MAV_CMD_NAV_LAND, 0,
             0, 0, 0, 0, 0, 0, 0)
+        return mavutil.mavlink.MAV_CMD_NAV_LAND
 
     elif cmd == "FORCE_DISARM":
         # MAV_CMD_COMPONENT_ARM_DISARM: param1=0 (disarm), param2=21196 (force).
@@ -143,6 +156,7 @@ def handle_command(master, mode_name_to_id, cmd):
             master.target_system, master.target_component,
             mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, 0,
             0, 21196, 0, 0, 0, 0, 0)
+        return mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM
 
     elif cmd in mode_name_to_id:
         # MAV_CMD_DO_SET_MODE with the firmware-specific custom mode number.
@@ -151,30 +165,79 @@ def handle_command(master, mode_name_to_id, cmd):
             mavutil.mavlink.MAV_CMD_DO_SET_MODE, 0,
             mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
             mode_name_to_id[cmd], 0, 0, 0, 0, 0)
-    elif mode_name_to_id and isinstance(next(iter(mode_name_to_id.values())), str):
-        # Back-compat: caller passed id→name table (e.g. MODE_TABLES["COPTER"]); invert it
-        inv = {v: k for k, v in mode_name_to_id.items()}
-        if cmd in inv:
-            master.mav.command_long_send(
-                master.target_system, master.target_component,
-                mavutil.mavlink.MAV_CMD_DO_SET_MODE, 0,
-                mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
-                inv[cmd], 0, 0, 0, 0, 0)
-            return
-
+        return mavutil.mavlink.MAV_CMD_DO_SET_MODE
     else:
         print("Unknown command:", cmd)
+    return None
 
 
-def drain_commands(rx_sock, master, mode_name_to_id):
-    """Accept every queued UDP command datagram (non-blocking)."""
+def drain_commands(rx_sock, master, mode_name_to_id, pending_commands=None):
+    """Accept queued commands and return ACKs resolved without the autopilot."""
+    local_acks = []
     while True:
         try:
             data, _ = rx_sock.recvfrom(256)
         except BlockingIOError:
-            return
-        handle_command(master, mode_name_to_id,
-                       data.decode("utf-8", "replace"))
+            return local_acks
+        decoded = decode_command(data.decode("utf-8", "replace"))
+        if decoded is None:
+            print("Ignored malformed command datagram")
+            continue
+        request_id, command = decoded
+        mav_command = handle_command(master, mode_name_to_id, command)
+        if mav_command is None:
+            local_acks.append(encode_command_ack(
+                request_id, command, mavutil.mavlink.MAV_RESULT_UNSUPPORTED))
+        elif pending_commands is not None:
+            pending_commands[mav_command] = (request_id, command)
+
+
+def command_ack_payload(msg, pending_commands):
+    """Map a MAVLink COMMAND_ACK to the matching Unity request, if any."""
+    mav_command = int(msg.command)
+    pending = pending_commands.get(mav_command)
+    if pending is None:
+        return None
+
+    request_id, command = pending
+    result = int(msg.result)
+    progress = int(getattr(msg, "progress", -1))
+    result_param2 = int(getattr(msg, "result_param2", 0))
+    if result != mavutil.mavlink.MAV_RESULT_IN_PROGRESS:
+        del pending_commands[mav_command]
+    return encode_command_ack(
+        request_id, command, result, progress, result_param2)
+
+
+def source_age(last_seen, now):
+    """Seconds since a MAVLink source message, or -1 when never observed."""
+    return -1.0 if last_seen is None else max(0.0, now - last_seen)
+
+
+def is_valid_coordinate(latitude, longitude):
+    return (math.isfinite(latitude) and math.isfinite(longitude)
+            and -90.0 <= latitude <= 90.0
+            and -180.0 <= longitude <= 180.0)
+
+
+def is_target_message(msg, master):
+    """Accept telemetry only from the autopilot selected by wait_heartbeat()."""
+    try:
+        source_system = int(msg.get_srcSystem())
+        source_component = int(msg.get_srcComponent())
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+    target_component = int(master.target_component)
+    return source_system == int(master.target_system) \
+        and (target_component == 0 or source_component == target_component)
+
+
+def all_finite(*values):
+    try:
+        return all(math.isfinite(float(value)) for value in values)
+    except (TypeError, ValueError):
+        return False
 
 
 def main():
@@ -184,7 +247,8 @@ def main():
 
     print("Connecting...")
     master = mavutil.mavlink_connection(args.port, baud=args.baud)
-    master.wait_heartbeat()
+    initial_heartbeat = master.wait_heartbeat()
+    heartbeat_received_at = time.monotonic()
     print("Connected! (system %d, component %d)"
           % (master.target_system, master.target_component))
 
@@ -196,29 +260,57 @@ def main():
             getattr(mavutil.mavlink, "MAVLINK_MSG_ID_" + msg_name),
             rate_us, 0, 0, 0, 0, 0)
 
+    # HOME_POSITION is commonly request-only even when interval requests are
+    # supported for other streams. Request it once as well as asking for updates.
+    master.mav.command_long_send(
+        master.target_system, master.target_component,
+        mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE, 0,
+        mavutil.mavlink.MAVLINK_MSG_ID_HOME_POSITION,
+        0, 0, 0, 0, 0, 0)
+
     # -----------------------------------------------------------------------
     # UDP sockets
     # -----------------------------------------------------------------------
     tx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)   # telemetry out
     rx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)   # commands in
-    rx_sock.bind((args.ip, args.rx_port))
+    # Commands are intentionally local-only. Remote command transport requires
+    # an authenticated channel rather than widening this UDP bind.
+    rx_sock.bind((UDP_RX_IP, args.rx_port))
     rx_sock.setblocking(False)
     print("Telemetry  -> UDP %s:%d" % (args.ip, args.tx_port))
-    print("Commands   <- UDP %s:%d" % (args.ip, args.rx_port))
+    print("Commands   <- UDP %s:%d (local only)" % (UDP_RX_IP, args.rx_port))
 
     # -----------------------------------------------------------------------
     # Telemetry state
     # -----------------------------------------------------------------------
-    x = y = z = None
-    roll = pitch = yaw = None
-    battery = 100          # assumed until a SYS_STATUS arrives
-    voltage = 0.0
-    current = 0.0
+    # Unknown sources use neutral transport values plus age=-1. Unity makes all
+    # validity decisions from source metadata, never from these placeholders.
+    x = y = z = 0.0
+    roll = pitch = yaw = 0.0
+    battery = -1           # unknown until a valid SYS_STATUS value arrives
+    voltage = -1.0
+    current = -1.0
     vib_x = vib_y = vib_z = 0.0
-    flight_mode = "UNKNOWN"
-    armed = 0
-    satellites = -1        # -1 = unknown (receiver treats it as "no satellite data")
-    gps_lat = gps_lon = gps_alt = 0.0   # keep 0 until first GPS fix
+    flight_mode = MODE_TABLES[firmware].get(
+        initial_heartbeat.custom_mode, str(initial_heartbeat.custom_mode))
+    armed = 1 if (initial_heartbeat.base_mode
+                  & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED) else 0
+    satellites = -1
+    gps_fix_type = 0
+    gps_lat = gps_lon = gps_alt = 0.0
+    sensors_present = sensors_enabled = sensors_health = 0
+    home_valid = False
+    home_lat = home_lon = home_alt = 0.0
+    home_north = home_east = 0.0
+    last_seen = {
+        "position": None,
+        "attitude": None,
+        "system_status": None,
+        "vibration": None,
+        "heartbeat": heartbeat_received_at,
+        "gps": None,
+    }
+    pending_commands = {}
 
     counter = 0
     last_print = time.time()
@@ -230,67 +322,132 @@ def main():
         while True:
             msg = master.recv_match(blocking=True, timeout=0.05)
             if not msg:
-                drain_commands(rx_sock, master, mode_name_to_id)
+                for payload in drain_commands(
+                        rx_sock, master, mode_name_to_id, pending_commands):
+                    tx_sock.sendto(payload.encode("ascii"), (args.ip, args.tx_port))
                 continue
 
             msg_type = msg.get_type()
+            received_at = time.monotonic()
+            if not is_target_message(msg, master):
+                for payload in drain_commands(
+                        rx_sock, master, mode_name_to_id, pending_commands):
+                    tx_sock.sendto(payload.encode("ascii"), (args.ip, args.tx_port))
+                continue
 
             # ---- LOCAL POSITION (NO GPS) ----
             if msg_type == 'LOCAL_POSITION_NED':
-                x = msg.x
-                y = msg.y
-                z = -msg.z                       # invert Z (down -> up) for Unity
+                if all_finite(msg.x, msg.y, msg.z):
+                    x = msg.x
+                    y = msg.y
+                    z = -msg.z                   # invert Z (down -> up) for Unity
+                    last_seen["position"] = received_at
 
             # ---- ATTITUDE ----
             elif msg_type == 'ATTITUDE':
-                roll = math.degrees(msg.roll)
-                pitch = math.degrees(msg.pitch)
-                yaw = math.degrees(msg.yaw)
+                if all_finite(msg.roll, msg.pitch, msg.yaw):
+                    roll = math.degrees(msg.roll)
+                    pitch = math.degrees(msg.pitch)
+                    yaw = math.degrees(msg.yaw)
+                    last_seen["attitude"] = received_at
 
             # ---- BATTERY / ELECTRICAL ----
             elif msg_type == 'SYS_STATUS':
-                if msg.battery_remaining != -1:
-                    battery = msg.battery_remaining
-                if msg.voltage_battery != 0:     # 0 = sensor unknown, keep last
-                    voltage = msg.voltage_battery / 1000.0     # mV -> V
-                if msg.current_battery != 0:     # 0 = sensor unknown, keep last
-                    current = msg.current_battery / 100.0      # cA -> A
+                battery = msg.battery_remaining \
+                    if 0 <= msg.battery_remaining <= 100 else -1
+                voltage = msg.voltage_battery / 1000.0 if msg.voltage_battery > 0 else -1.0
+                current = msg.current_battery / 100.0 if msg.current_battery >= 0 else -1.0
+                sensors_present = int(msg.onboard_control_sensors_present)
+                sensors_enabled = int(msg.onboard_control_sensors_enabled)
+                sensors_health = int(msg.onboard_control_sensors_health)
+                last_seen["system_status"] = received_at
 
-            # ---- VIBRATION (used by Unity auto-land + gradient bars) ----
-            elif msg_type == 'VIBRATION' and msg.vibration_x is not None:
+            # ---- VIBRATION (used by Unity alerts + gradient bars) ----
+            elif msg_type == 'VIBRATION' and all_finite(
+                    msg.vibration_x, msg.vibration_y, msg.vibration_z):
                 vib_x, vib_y, vib_z = msg.vibration_x, msg.vibration_y, msg.vibration_z
+                last_seen["vibration"] = received_at
 
             # ---- FLIGHT MODE / ARMED ----
             elif msg_type == 'HEARTBEAT':
                 armed = 1 if (msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED) else 0
                 flight_mode = MODE_TABLES[firmware].get(msg.custom_mode, str(msg.custom_mode))
+                last_seen["heartbeat"] = received_at
 
             # ---- GPS ----
-            elif msg_type == 'GPS_RAW_INT' and msg.fix_type >= 3:
-                gps_lat = msg.lat / 1e7          # 1e-7 deg -> deg
-                gps_lon = msg.lon / 1e7
-                gps_alt = msg.alt / 1000.0       # mm -> m (MSL)
-                satellites = msg.satellites_visible
+            elif msg_type == 'GPS_RAW_INT':
+                gps_fix_type = int(msg.fix_type)
+                satellites = -1 if msg.satellites_visible == 255 else int(msg.satellites_visible)
+                candidate_lat = msg.lat / 1e7
+                candidate_lon = msg.lon / 1e7
+                if (gps_fix_type >= 3
+                        and is_valid_coordinate(candidate_lat, candidate_lon)
+                        and all_finite(msg.alt)):
+                    gps_lat = candidate_lat
+                    gps_lon = candidate_lon
+                    gps_alt = msg.alt / 1000.0    # mm -> m (MSL)
+                else:
+                    gps_lat = gps_lon = gps_alt = 0.0
+                last_seen["gps"] = received_at
 
-            drain_commands(rx_sock, master, mode_name_to_id)
+            elif msg_type == 'HOME_POSITION':
+                candidate_lat = msg.latitude / 1e7
+                candidate_lon = msg.longitude / 1e7
+                home_valid = (msg.latitude != 0 or msg.longitude != 0) \
+                    and is_valid_coordinate(candidate_lat, candidate_lon)
+                if home_valid:
+                    home_lat = candidate_lat
+                    home_lon = candidate_lon
+                    home_alt = msg.altitude / 1000.0
+                    raw_north = float(getattr(msg, "x", 0.0))
+                    raw_east = float(getattr(msg, "y", 0.0))
+                    home_north = raw_north if math.isfinite(raw_north) else 0.0
+                    home_east = raw_east if math.isfinite(raw_east) else 0.0
 
-            # ---- SEND WHEN ALL 3D + ATTITUDE KNOWN ----
-            if (x is not None and y is not None and z is not None and
-                    roll is not None and pitch is not None and yaw is not None):
+            elif msg_type == 'COMMAND_ACK':
+                payload = command_ack_payload(msg, pending_commands)
+                if payload is not None:
+                    tx_sock.sendto(payload.encode("ascii"), (args.ip, args.tx_port))
 
-                message = "%s,%s,%s,%s,%s,%s,1,%s,%s,%s,%s,%.3f,%s,%s,%s,%s,%s,%s,%s,%s" % (
-                    x, y, z, roll, pitch, yaw,
-                    battery,
-                    vib_x, vib_y, vib_z,
-                    time.time(),                 # unix seconds at send
-                    flight_mode, armed,
-                    "%.2f" % voltage, "%.2f" % current,
-                    satellites,
-                    gps_lat, gps_lon, gps_alt,
-                )
+            for payload in drain_commands(
+                    rx_sock, master, mode_name_to_id, pending_commands):
+                tx_sock.sendto(payload.encode("ascii"), (args.ip, args.tx_port))
 
-                tx_sock.sendto(message.encode(), (args.ip, args.tx_port))
-                counter += 1
+            # Emit a complete snapshot even when individual MAVLink sources have
+            # never arrived. Their age=-1 keeps the corresponding UI explicitly
+            # unavailable while connection and heartbeat remain truthful.
+            now_monotonic = time.monotonic()
+            message = encode_telemetry({
+                "x": x, "y": y, "z": z,
+                "roll": roll, "pitch": pitch, "yaw": yaw,
+                "status": 1,
+                "battery": battery,
+                "vibration_x": vib_x, "vibration_y": vib_y, "vibration_z": vib_z,
+                "send_ts": "%.3f" % time.time(),
+                "flight_mode": flight_mode,
+                "armed": armed,
+                "voltage": "%.2f" % voltage,
+                "current": "%.2f" % current,
+                "satellites": satellites,
+                "lat": gps_lat, "lon": gps_lon, "gps_alt": gps_alt,
+                "protocol_version": PROTOCOL_VERSION,
+                "position_age": "%.3f" % source_age(last_seen["position"], now_monotonic),
+                "attitude_age": "%.3f" % source_age(last_seen["attitude"], now_monotonic),
+                "system_status_age": "%.3f" % source_age(last_seen["system_status"], now_monotonic),
+                "vibration_age": "%.3f" % source_age(last_seen["vibration"], now_monotonic),
+                "heartbeat_age": "%.3f" % source_age(last_seen["heartbeat"], now_monotonic),
+                "gps_age": "%.3f" % source_age(last_seen["gps"], now_monotonic),
+                "gps_fix_type": gps_fix_type,
+                "sensors_present": sensors_present,
+                "sensors_enabled": sensors_enabled,
+                "sensors_health": sensors_health,
+                "home_valid": 1 if home_valid else 0,
+                "home_lat": home_lat, "home_lon": home_lon, "home_alt": home_alt,
+                "home_north": home_north, "home_east": home_east,
+            })
+
+            tx_sock.sendto(message.encode(), (args.ip, args.tx_port))
+            counter += 1
 
             # ---- RATE PRINT ----
             if time.time() - last_print > 1:

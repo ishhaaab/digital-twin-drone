@@ -805,8 +805,6 @@ MonoBehaviour:
   latencyGaugeMaxMs: 300
   latencyHighMs: 180
   latencyCriticalMs: 300
-  gpsGoodLatencyMs: 80
-  gpsPoorLatencyMs: 400
   satellitesForFullBars: 12
   gpsDegradedSats: 6
   delayedThreshold: 5
@@ -824,6 +822,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::DroneDataReceiver
   listenPort: 5055
   commandPort: 5056
+  listenAddress: 127.0.0.1
+  trustedTelemetrySourceIP: 127.0.0.1
   commandTargetIP: 127.0.0.1
   latestData:
     timestamp: 0
@@ -843,10 +843,27 @@ MonoBehaviour:
     roll_rate: 0
     pitch_rate: 0
     yaw_rate: 0
-    battery_remaining: 0
-    voltage: 0
-    current: 0
+    battery_remaining: -1
+    voltage: -1
+    current: -1
     satellites: -1
+    protocolVersion: 0
+    positionAge: -1
+    attitudeAge: -1
+    systemStatusAge: -1
+    vibrationAge: -1
+    heartbeatAge: -1
+    gpsAge: -1
+    gpsFixType: 0
+    sensorsPresent: 0
+    sensorsEnabled: 0
+    sensorsHealth: 0
+    homeValid: 0
+    homeLat: 0
+    homeLon: 0
+    homeAlt: 0
+    homeNorth: 0
+    homeEast: 0
     motor1: 0
     motor2: 0
     motor3: 0
@@ -865,8 +882,25 @@ MonoBehaviour:
   newDataAvailable: 0
   isConnected: 0
   connectionTimeout: 2
+  positionFreshnessTimeout: 1
+  attitudeFreshnessTimeout: 1
+  systemStatusFreshnessTimeout: 3
+  vibrationFreshnessTimeout: 2
+  heartbeatFreshnessTimeout: 3
+  gpsFreshnessTimeout: 3
   vibrationThreshold: 60
-  vibrationCooldown: 10
+  commandAckTimeout: 3
+  commandCompletionTimeout: 30
+  landingCompletionTimeout: 180
+  commandStatus:
+    requestId: ''
+    command: ''
+    state: 0
+    mavResult: -1
+    progress: -1
+    resultParam2: 0
+    detail: ''
+    updatedTimestamp: 0
 --- !u!114 &974473247
 MonoBehaviour:
   m_ObjectHideFlags: 0

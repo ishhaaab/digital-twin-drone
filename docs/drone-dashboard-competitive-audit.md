@@ -2,6 +2,10 @@
 
 Date: 2026-09-15
 
+> This document records the pre-Phase-0 baseline. The trust and safety findings
+> in Phase 0 have since been implemented; see `docs/phase-0-live-trust.md` for
+> current behavior, verification, and required aircraft-side validation.
+
 ## Scope and method
 
 This audit compares the implemented project, not the proposals in

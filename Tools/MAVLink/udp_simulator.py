@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """UDP telemetry simulator for the digital-twin drone Unity project.
 
-Feeds fake 20-field CSV packets to the same UDP endpoint the real MAVLink
+Feeds fake protocol-v2 CSV packets to the same UDP endpoint the real MAVLink
 bridge uses (127.0.0.1:5055) so you can exercise the ENTIRE Unity pipeline —
-position, rotation, battery, vibration, latency, GPS, mode/armed, auto-land —
+position, rotation, battery, vibration, latency, GPS, mode/armed, alerts —
 with no drone hardware attached. It also listens on the command port (5056)
-so Unity buttons / auto-land actually do something to the simulated drone.
+so Unity buttons and command acknowledgements work without a real aircraft.
 
 Field layout matches Tools/MAVLink/mavlink_bridge.py — see the docstring
 there for the field-by-field breakdown.
@@ -22,6 +22,13 @@ import argparse
 import math
 import socket
 import time
+
+from telemetry_protocol import (
+    PROTOCOL_VERSION,
+    decode_command,
+    encode_command_ack,
+    encode_telemetry,
+)
 
 
 def build_parser():
@@ -44,7 +51,7 @@ def build_parser():
                    help="cruise altitude in meters (default 2)")
     p.add_argument("--spike-after", type=float, default=10.0,
                    help="seconds after start for a vibration spike that trips "
-                        "the Unity auto-land path (default 10)")
+                        "the Unity critical-vibration alert (default 10)")
     p.add_argument("--battery-drain", type=float, default=3.0,
                    help="battery %% drained per simulated minute (default 3)")
     return p
@@ -65,12 +72,13 @@ class SimDrone:
         self.landing = False
         self.land_start = 0.0
         self._landing_descent = 0.0  # cumulative descent while landing
+        self.commanded_mode = None
 
     def snapshot(self, t, dt, spike=False):
-        """Return one 20-field CSV line for elapsed time `t`."""
+        """Return one protocol-v2 CSV line for elapsed time `t`."""
         # ---- slow integrated state (driven by t so dt is only a fallback) ----
         self.battery = max(0.0, self.battery - self.drain_per_s * dt)
-        mode = self.MODES[int(t / 8.0) % len(self.MODES)]
+        mode = self.commanded_mode or self.MODES[int(t / 8.0) % len(self.MODES)]
 
         # ---- flight path: circle in NED (Unity X=east=+y, Z=north=+x, Y=up=+z) ----
         theta = t * self.angular_rate
@@ -79,6 +87,7 @@ class SimDrone:
         base_z = self.altitude + 0.3 * math.sin(t * 2.0)    # up (+) with a small bob
 
         if self.landing:
+            mode = "LAND"
             self._landing_descent += 1.5 * dt
             z = max(0.0, base_z - self._landing_descent)
             if z <= 0.02:
@@ -96,7 +105,7 @@ class SimDrone:
         current = 14.0 + 6.0 * math.sin(t * 0.7)
         voltage = 16.8 * (0.25 + 0.75 * self.battery / 100.0)
 
-        # ---- vibration: small by default; spike trips Unity's auto-land ----
+        # ---- vibration: small by default; spike trips Unity's critical alert ----
         vib = 12.0 if self.landing else 2.5 + 1.5 * math.sin(t * 3.0)
         if spike:
             vib = 95.0                                # > receiver threshold (60)
@@ -108,31 +117,60 @@ class SimDrone:
         lat = origin_lat + x / meters_per_degree
         lon = origin_lon + y / (meters_per_degree * math.cos(math.radians(origin_lat)))
 
-        return "%.3f,%.3f,%.3f,%.2f,%.2f,%.2f,1,%d,%.2f,%.2f,%.2f,%.3f,%s,%d,%.2f,%.2f,12,%.6f,%.6f,%.3f" % (
-            x, y, z,
-            roll, pitch, yaw,
-            int(round(self.battery)),
-            vib, vib, vib,                    # vibration on all three axes
-            time.time(),                      # unix seconds at send (latency ~0)
-            mode, self.armed,
-            voltage, current,
-            lat, lon, z + 200.0,              # gps_alt (arbitrary MSL offset)
-        )
+        sensor_mask = 1 | 2 | 4 | 8 | 32
+        return encode_telemetry({
+            "x": "%.3f" % x, "y": "%.3f" % y, "z": "%.3f" % z,
+            "roll": "%.2f" % roll, "pitch": "%.2f" % pitch, "yaw": "%.2f" % yaw,
+            "status": 1,
+            "battery": int(round(self.battery)),
+            "vibration_x": "%.2f" % vib,
+            "vibration_y": "%.2f" % vib,
+            "vibration_z": "%.2f" % vib,
+            "send_ts": "%.3f" % time.time(),
+            "flight_mode": mode,
+            "armed": self.armed,
+            "voltage": "%.2f" % voltage,
+            "current": "%.2f" % current,
+            "satellites": 12,
+            "lat": "%.6f" % lat,
+            "lon": "%.6f" % lon,
+            "gps_alt": "%.3f" % (z + 200.0),
+            "protocol_version": PROTOCOL_VERSION,
+            "position_age": 0,
+            "attitude_age": 0,
+            "system_status_age": 0,
+            "vibration_age": 0,
+            "heartbeat_age": 0,
+            "gps_age": 0,
+            "gps_fix_type": 3,
+            "sensors_present": sensor_mask,
+            "sensors_enabled": sensor_mask,
+            "sensors_health": sensor_mask,
+            "home_valid": 1,
+            "home_lat": 28.6139,
+            "home_lon": 77.2090,
+            "home_alt": 200.0,
+            "home_north": 0.0,
+            "home_east": 0.0,
+        })
 
     def on_command(self, cmd, t):
         """React to a command from Unity, mirroring what a copter would do."""
         cmd = (cmd or "").strip().upper()
         if not cmd:
-            return
+            return False
         print("  sim: command ->", cmd)
         if cmd == "LAND":
             self.landing = True
             self.land_start = t
+            return True
         elif cmd == "FORCE_DISARM":
             self.armed = 0
+            return True
         elif cmd in self.MODES:
-            pass                               # snapshot() picks the mode by time;
-                                               # real copter would switch here
+            self.commanded_mode = cmd
+            return True
+        return False
 
 
 def main():
@@ -170,13 +208,21 @@ def main():
             tx.sendto(msg.encode(), (args.ip, args.tx_port))
             sent += 1
 
-            # Drain commands Unity sent (LAND / modes / disarm).
+            # Drain commands Unity sent and acknowledge each request.
             while True:
                 try:
                     data, _ = rx.recvfrom(256)
                 except BlockingIOError:
                     break
-                drone.on_command(data.decode("utf-8", "replace"), t)
+                decoded = decode_command(data.decode("utf-8", "replace"))
+                if decoded is None:
+                    print("  sim: ignored malformed command datagram")
+                    continue
+                request_id, command = decoded
+                accepted = drone.on_command(command, t)
+                result = 0 if accepted else 3  # MAV_RESULT_ACCEPTED / UNSUPPORTED
+                ack = encode_command_ack(request_id, command, result)
+                tx.sendto(ack.encode("ascii"), (args.ip, args.tx_port))
 
             if now - last_print >= 1.0:
                 print("Sending UDP packets: %d/sec" % sent)

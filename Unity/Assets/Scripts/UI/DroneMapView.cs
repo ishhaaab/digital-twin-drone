@@ -18,8 +18,12 @@ public class DroneMapView : MaskableGraphic
     [SerializeField] int head;
     [SerializeField] int count;
     [SerializeField] Vector2 current;
+    [SerializeField] bool currentLocalValid;
     [SerializeField] Vector2 currentGeo;
     [SerializeField] bool currentGeoValid;
+    [SerializeField] Vector2 homeLocal;
+    [SerializeField] Vector2 homeGeo;
+    [SerializeField] bool homePositionValid;
     [SerializeField] Vector2 mapCenter;
     [SerializeField] float heading;
     [SerializeField] float visibleSpan = 20f;
@@ -38,16 +42,25 @@ public class DroneMapView : MaskableGraphic
         SetVerticesDirty();
     }
 
-    public void SetTelemetry(float north, float east, float latitude, float longitude, float headingDegrees)
+    public void SetTelemetry(
+        float north, float east, float latitude, float longitude, float headingDegrees,
+        bool localPositionValid, bool gpsValid, bool headingValid,
+        bool homeValid, float homeNorth, float homeEast, float homeLatitude, float homeLongitude)
     {
         EnsurePathBuffer();
-        current = new Vector2(east, north);
+        currentLocalValid = localPositionValid;
+        if (localPositionValid) current = new Vector2(east, north);
         currentGeo = new Vector2(longitude, latitude);
-        currentGeoValid = OpenStreetMapTileLayer.IsValidCoordinate(latitude, longitude);
-        heading = headingDegrees;
+        currentGeoValid = gpsValid && OpenStreetMapTileLayer.IsValidCoordinate(latitude, longitude);
+        homeLocal = new Vector2(homeEast, homeNorth);
+        homeGeo = new Vector2(homeLongitude, homeLatitude);
+        homePositionValid = homeValid
+            && OpenStreetMapTileLayer.IsValidCoordinate(homeLatitude, homeLongitude);
+        if (headingValid) heading = headingDegrees;
         if (currentGeoValid) tileLayer?.SetLocation(latitude, longitude);
 
-        if (count == 0 || Vector2.Distance(path[(head - 1 + Capacity) % Capacity], current) >= 0.08f)
+        if (localPositionValid
+            && (count == 0 || Vector2.Distance(path[(head - 1 + Capacity) % Capacity], current) >= 0.08f))
         {
             path[head] = current;
             geoPath[head] = currentGeo;
@@ -57,7 +70,8 @@ public class DroneMapView : MaskableGraphic
         }
 
         Vector2 relativeCurrent = current - mapCenter;
-        float maxExtent = Mathf.Max(Mathf.Abs(relativeCurrent.x), Mathf.Abs(relativeCurrent.y));
+        float maxExtent = localPositionValid
+            ? Mathf.Max(Mathf.Abs(relativeCurrent.x), Mathf.Abs(relativeCurrent.y)) : 0f;
         for (int i = 0; i < count; i++)
         {
             int index = (head - count + i + Capacity) % Capacity;
@@ -68,8 +82,10 @@ public class DroneMapView : MaskableGraphic
         visibleSpan = required <= 10f ? 10f : required <= 20f ? 20f : required <= 50f ? 50f
             : required <= 100f ? 100f : required <= 200f ? 200f : required <= 500f ? 500f : 1000f;
 
-        if (gpsText != null) gpsText.text = $"LAT  {latitude:F5}°    LON  {longitude:F5}°";
-        if (localText != null) localText.text = $"N  {north:F2} m    E  {east:F2} m";
+        if (gpsText != null) gpsText.text = currentGeoValid
+            ? $"LAT  {latitude:F5}°    LON  {longitude:F5}°" : "GPS NO FIX";
+        if (localText != null) localText.text = localPositionValid
+            ? $"N  {north:F2} m    E  {east:F2} m" : "LOCAL POSITION STALE";
         UpdateScaleText();
         SetVerticesDirty();
     }
@@ -83,7 +99,7 @@ public class DroneMapView : MaskableGraphic
     public void Recenter()
     {
         EnsurePathBuffer();
-        mapCenter = current;
+        if (currentLocalValid) mapCenter = current;
         visibleSpan = 10f;
         if (currentGeoValid)
             tileLayer?.CenterOn(currentGeo.y, currentGeo.x);
@@ -129,34 +145,37 @@ public class DroneMapView : MaskableGraphic
             {
                 int aIndex = (head - count + i + Capacity) % Capacity;
                 int bIndex = (aIndex + 1) % Capacity;
+                if (hasMap && (!geoPathValid[aIndex] || !geoPathValid[bIndex])) continue;
                 AddLine(vh, ToCanvas(path[aIndex], geoPath[aIndex], geoPathValid[aIndex], rect),
                     ToCanvas(path[bIndex], geoPath[bIndex], geoPathValid[bIndex], rect), 2f, pathColor);
             }
         }
 
-        if (count > 0)
+        if (homePositionValid)
         {
-            int homeIndex = (head - count + Capacity) % Capacity;
-            Vector2 home = ToCanvas(path[homeIndex], geoPath[homeIndex], geoPathValid[homeIndex], rect);
+            Vector2 home = ToCanvas(homeLocal, homeGeo, true, rect);
             Color homeColor = new Color(DroneUIFX.AERO_GREEN.r, DroneUIFX.AERO_GREEN.g, DroneUIFX.AERO_GREEN.b, 0.9f);
             AddLine(vh, home + new Vector2(-6, 0), home + new Vector2(6, 0), 1.4f, homeColor);
             AddLine(vh, home + new Vector2(0, -6), home + new Vector2(0, 6), 1.4f, homeColor);
         }
 
-        Vector2 marker = ToCanvas(current, currentGeo, currentGeoValid, rect);
-        float radians = heading * Mathf.Deg2Rad;
-        Vector2 forward = new Vector2(Mathf.Sin(radians), Mathf.Cos(radians));
-        Vector2 right = new Vector2(forward.y, -forward.x);
-        AddTriangle(vh,
-            marker + forward * 11f,
-            marker - forward * 7f + right * 7f,
-            marker - forward * 4f,
-            DroneUIFX.AERO_ACCENT);
-        AddTriangle(vh,
-            marker + forward * 11f,
-            marker - forward * 4f,
-            marker - forward * 7f - right * 7f,
-            DroneUIFX.AERO_ACCENT);
+        if (currentLocalValid && (!hasMap || currentGeoValid))
+        {
+            Vector2 marker = ToCanvas(current, currentGeo, currentGeoValid, rect);
+            float radians = heading * Mathf.Deg2Rad;
+            Vector2 forward = new Vector2(Mathf.Sin(radians), Mathf.Cos(radians));
+            Vector2 right = new Vector2(forward.y, -forward.x);
+            AddTriangle(vh,
+                marker + forward * 11f,
+                marker - forward * 7f + right * 7f,
+                marker - forward * 4f,
+                DroneUIFX.AERO_ACCENT);
+            AddTriangle(vh,
+                marker + forward * 11f,
+                marker - forward * 4f,
+                marker - forward * 7f - right * 7f,
+                DroneUIFX.AERO_ACCENT);
+        }
     }
 
     Vector2 ToCanvas(Vector2 meters, Vector2 geo, bool hasGeo, Rect rect)

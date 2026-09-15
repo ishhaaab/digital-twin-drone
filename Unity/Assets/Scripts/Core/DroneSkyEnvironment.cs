@@ -28,10 +28,13 @@ public static class DroneSkyEnvironment
             return;
         }
 
-        Shader skyShader = Shader.Find("Skybox/Panoramic");
+        // Loading the shader itself from Resources prevents standalone shader
+        // stripping. Shader.Find("Skybox/Panoramic") was editor-only in practice.
+        Shader skyShader = Resources.Load<Shader>("Environment/DronePanoramicSky");
+        if (skyShader == null) skyShader = Shader.Find("Skybox/Panoramic");
         if (skyShader == null)
         {
-            Debug.LogWarning("[Sky] Built-in panoramic sky shader was not found.");
+            Debug.LogWarning("[Sky] Panoramic sky shader was not found.");
             return;
         }
 

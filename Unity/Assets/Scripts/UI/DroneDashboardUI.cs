@@ -484,7 +484,7 @@ public class DroneDashboardUI : MonoBehaviour
         ui.speedText = SlimStatRow(movement, "GROUND SPEED", "m/s", rowH: 27, labelW: 140);
         ui.verticalSpeedText = SlimStatRow(movement, "VERTICAL SPEED", "m/s", rowH: 27, labelW: 140);
 
-        var controls = CreatePanelCard(outer, "ControlsCard", 176f);
+        var controls = CreatePanelCard(outer, "ControlsCard", 194f);
         SectionHeader(controls, "FLIGHT CONTROLS", DroneUIFX.IconType.Controls);
         var modeCaption = new GameObject("ModeCaption", typeof(RectTransform));
         modeCaption.transform.SetParent(controls.transform, false);
@@ -504,11 +504,24 @@ public class DroneDashboardUI : MonoBehaviour
         ui.stabilizeButtonStyle = MakeAeroButton(modeRow, "STABILIZE", BTN_MODE_ACCENT, false, () => SendCmd("STABILIZE"), 10.5f, 30);
         ui.altHoldButtonStyle = MakeAeroButton(modeRow, "ALT HOLD", BTN_MODE_ACCENT, false, () => SendCmd("ALT_HOLD"), 10.5f, 30);
         ui.posHoldButtonStyle = MakeAeroButton(modeRow, "POS HOLD", BTN_MODE_ACCENT, false, () => SendCmd("POSHOLD"), 10.5f, 30);
-        MakeAeroButton(controls, "LAND", BTN_LAND_ACCENT, false, () => SendCmd("LAND"), 11, 32);
-        MakeAeroButton(controls, "FORCE DISARM", BTN_DISARM_ACCENT, true,
+        ui.landButtonStyle = MakeAeroButton(controls, "LAND", BTN_LAND_ACCENT, false, () => SendCmd("LAND"), 11, 32);
+        ui.forceDisarmButtonStyle = MakeAeroButton(controls, "FORCE DISARM", BTN_DISARM_ACCENT, true,
             () => ConfirmDialog("FORCE DISARM",
                 "This forcibly disarms motors in flight.\nConfirm to send FORCE_DISARM to the vehicle.",
                 "CONFIRM DISARM", () => SendCmd("FORCE_DISARM")), 11, 32, DroneUIFX.IconType.Lock);
+
+        var commandStatusGO = new GameObject("CommandStatus", typeof(RectTransform));
+        commandStatusGO.transform.SetParent(controls.transform, false);
+        commandStatusGO.AddComponent<LayoutElement>().preferredHeight = 18;
+        var commandStatus = commandStatusGO.AddComponent<TextMeshProUGUI>();
+        commandStatus.text = "COMMANDS LOCKED";
+        commandStatus.fontSize = 9.5f;
+        commandStatus.characterSpacing = 3;
+        commandStatus.fontStyle = FontStyles.Bold;
+        commandStatus.color = TXT_DIM;
+        commandStatus.alignment = TextAlignmentOptions.Center;
+        commandStatus.raycastTarget = false;
+        ui.commandStatusText = commandStatus;
 
         var vibration = CreatePanelCard(outer, "VibrationCard", 96f);
         SectionHeader(vibration, "VIBRATION  (m/s²)", DroneUIFX.IconType.Telemetry);
@@ -1298,7 +1311,11 @@ public class DroneDashboardUI : MonoBehaviour
         {
             DroneData latest = rx != null ? rx.latestData : null;
             if (latest != null && latest.timestamp > 0.0)
-                mapView.SetTelemetry(latest.x, latest.y, latest.lat, latest.lon, latest.yaw);
+                mapView.SetTelemetry(
+                    latest.x, latest.y, latest.lat, latest.lon, latest.yaw,
+                    rx.PositionFresh, rx.GpsFixValid, rx.AttitudeFresh,
+                    rx.HomePositionValid,
+                    latest.homeNorth, latest.homeEast, latest.homeLat, latest.homeLon);
             mapView.Refresh();
         }
         if (cameraModesOverlay != null) cameraModesOverlay.SetActive(!showMap);
@@ -1386,7 +1403,8 @@ public class DroneDashboardUI : MonoBehaviour
             centerViewport.anchorMin = Vector2.zero;
             centerViewport.anchorMax = Vector2.one;
             centerViewport.offsetMin = new Vector2(OUTER_PAD, OUTER_PAD);
-            centerViewport.offsetMax = new Vector2(-OUTER_PAD, -OUTER_PAD);
+            // Fullscreen keeps the flight-critical top status bar visible.
+            centerViewport.offsetMax = new Vector2(-OUTER_PAD, -TOP_H - GAP);
             centerViewport.SetAsLastSibling();
             viewportFullscreen = true;
             fullscreenStyle?.SetSelected(true);
@@ -1422,10 +1440,10 @@ public class DroneDashboardUI : MonoBehaviour
         layout.childForceExpandWidth = true;
         layout.childForceExpandHeight = false;
         SectionHeader(settingsPanel, "SYSTEM / CONNECTION", DroneUIFX.IconType.Settings);
-        InfoRow(settingsPanel, "TELEMETRY UDP", rx != null ? rx.listenPort.ToString() : "--");
+        InfoRow(settingsPanel, "TELEMETRY UDP", rx != null ? $"{rx.listenAddress}:{rx.listenPort}" : "--");
         InfoRow(settingsPanel, "COMMAND TARGET", rx != null ? $"{rx.commandTargetIP}:{rx.commandPort}" : "--");
         InfoRow(settingsPanel, "BATTERY WARNING", $"{ui.batteryLowPercent}%");
-        InfoRow(settingsPanel, "VIBRATION LAND", $"{ui.vibCriticalThreshold:0} m/s²");
+        InfoRow(settingsPanel, "VIBRATION ALERT", $"{ui.vibCriticalThreshold:0} m/s²");
         MakeAeroButton(settingsPanel, "CLOSE", BTN_MODE_ACCENT, false, ToggleSettingsPanel, 9, 28);
         settingsPanel.SetActive(false);
     }
@@ -2005,7 +2023,10 @@ public class DroneDashboardUI : MonoBehaviour
 
     void SendCmd(string cmd)
     {
-        if (rx != null) { rx.SendCommand(cmd); Debug.Log("[DashboardUI] CMD: " + cmd); }
+        if (rx != null)
+        {
+            if (rx.SendCommand(cmd)) Debug.Log("[DashboardUI] Command requested: " + cmd);
+        }
         else Debug.LogError("[DashboardUI] No receiver for CMD " + cmd);
     }
 }

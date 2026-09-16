@@ -80,6 +80,10 @@ interactive viewport.
 
 ### 1. Some displayed state is not operationally truthful
 
+> **Resolved in Phase 0 (validity scope):** Protocol v2 now carries per-source
+> age, sensor health, GPS fix, and home validity, and the UI renders stale or
+> unknown values accordingly. The original findings remain as historical context.
+
 This is more important than adding another panel.
 
 - `Unity/Assets/Scripts/UI/DroneUIUpdater.cs:266-275` reports IMU and barometer as `OK` whenever the telemetry socket is connected. The 20-field protocol contains no IMU-health or barometer-health field. These should be `UNKNOWN` until MAVLink `SYS_STATUS` health bits are transported.
@@ -101,6 +105,11 @@ Recommended correction:
 - Bind to or authenticate a trusted telemetry source, validate message integrity, and keep automatic flight failsafes on the autopilot. The dashboard may surface and acknowledge a failsafe; it should not be the only safety controller.
 
 ### 2. Commands are fire-and-forget
+
+> **Resolved in Phase 0:** Commands now carry request IDs, route correlated
+> `COMMAND_ACK` states back to Unity, and require telemetry-confirmed completion
+> with explicit timeout and failure states. The original finding remains as
+> historical context.
 
 `Unity/Assets/Scripts/Networking/DroneDataReceiver.cs:399-410` only sends a UDP
 datagram. `Tools/MAVLink/mavlink_bridge.py:119-166` forwards a MAVLink command but

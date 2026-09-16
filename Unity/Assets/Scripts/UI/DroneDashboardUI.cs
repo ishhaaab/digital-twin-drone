@@ -7,7 +7,7 @@ using System.Collections.Generic;
 //
 // Target layout (1920x1080):
 // ┌──────────────────────────────────────────────────────────────────────┐
-// │ TOP BAR (52px):  DRONE  ●CONNECTION  MODE  ARM  LAT  SATS  COMPASS  T PKTS │
+// │ TOP BAR (54px):  DRONE  ●CONNECTION  MODE  ARM  LAT  SATS  COMPASS  T PKTS │
 // ├──────────────┬──────────────────────────────────┬─────────────────────┤
 // │ LEFT 340px   │         CENTER (3D Twin)         │  RIGHT 360px        │
 // │ ATTITUDE     │                                  │  POWER              │
@@ -22,7 +22,7 @@ using System.Collections.Generic;
 // │  DISARM      │                                  │                     │
 // │ VIB (compact)│                                  │                     │
 // ├──────────────┴──────────────────────────────────┴─────────────────────┤
-// │ BOTTOM (148px):  ALTITUDE GRAPH  │  SPEED GRAPH  │  LATENCY GRAPH    │
+// │ BOTTOM (162px): ALTITUDE │ SPEED │ BATTERY │ LATENCY GRAPHS          │
 // └──────────────────────────────────────────────────────────────────────┘
 //
 // Visual language: muted automotive/aerospace instrumentation. Dark graphite

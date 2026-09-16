@@ -17,24 +17,39 @@ Unity/                  Unity project (open this folder in Unity)
     Drone/Prefabs/      Drone + Variants
     Scenes/
       SampleScene.unity   THE working scene — fully wired, use this one
-      DroneDemo.unity     Minimal static scene (no scripts) — safe to delete
+    Editor/
+      BuildScript.cs      Licensed headless build entry point
     Scripts/
-      Core/             DroneController, Drone_Camera, DroneTail
-      Networking/       DroneDataReceiver (UDP listener)
-      UI/               Button, DroneDashboardUI, DroneUIFX, DroneUIUpdater
+      Core/
+        DroneController.cs
+        DroneSkyEnvironment.cs
+        DroneTrail.cs
+        DroneWorldGrid.cs
+      Networking/
+        DroneDataReceiver.cs
+      UI/
+        DroneDashboardUI.cs
+        DroneMapView.cs
+        DroneUIFX.cs
+        DroneUIUpdater.cs
+        DroneViewportCameraController.cs
+        FlightRecordsView.cs
+        OpenStreetMapTileLayer.cs
+        TelemetryGraph.cs
     RenderTextures/
     Settings/
 Tools/
   MAVLink/
     mavlink_bridge.py   Serial → UDP bridge (telemetry out, commands in)
     udp_simulator.py    Fake telemetry sender — test without a drone
+    telemetry_protocol.py  Canonical ordered telemetry contract
+    test_mavlink.py     Bridge, simulator, and cross-language contract tests
     requirements.txt
 ```
 
-> ⚠ **Scene note:** open and play **`SampleScene`**, not `DroneDemo`.
-> `DroneDemo` is an old static scene with no scripts attached. `SampleScene`
-> is the only one wired (drone prefab + controller, camera view render
-> texture, dashboard, command buttons, event system).
+> **Scene note:** `SampleScene` is the only scene. It is fully wired with the
+> drone prefab and controller, camera render texture, dashboard, command
+> buttons, and event system.
 
 ## Run
 
@@ -53,14 +68,14 @@ cd Tools/MAVLink
 .venv\Scripts\python -m unittest test_mavlink -v
 ```
 
-Covers the shared 37-field protocol-v2 contract, source-validity metadata,
-send timestamps, command validation, MAVLink dispatch, and correlated command
-acknowledgements. No drone hardware is needed.
+Covers the shared 37-field protocol-v2 contract and C# index map,
+source-validity metadata, send timestamps, command validation, MAVLink
+dispatch, and correlated command acknowledgements. No drone hardware is needed.
 
 ## No drone? Use the simulator
 
 `udp_simulator.py` feeds fake telemetry on the exact same ports. Every Unity
-widget (position, attitude, battery ring, vibration, latency, GPS, mode/armed)
+widget (position, attitude, battery, vibration, latency, GPS, mode/armed)
 and the acknowledged command flow comes alive with zero hardware:
 
 ```bash

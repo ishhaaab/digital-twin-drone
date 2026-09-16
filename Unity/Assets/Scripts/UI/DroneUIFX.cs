@@ -294,7 +294,6 @@ public static class DroneUIFX
     // ── Shared colour ramps ──────────────────────────────────────────────
     public static readonly Color COL_GREEN  = new Color(0.20f, 0.90f, 0.50f);
     public static readonly Color COL_YELLOW = new Color(1.00f, 0.85f, 0.20f);
-    public static readonly Color COL_ORANGE = new Color(1.00f, 0.55f, 0.10f);
     public static readonly Color COL_RED    = new Color(1.00f, 0.25f, 0.25f);
     public static readonly Color COL_CYAN   = new Color(0.25f, 0.85f, 0.95f);
     public static readonly Color COL_AMBER  = new Color(1.00f, 0.70f, 0.15f);
@@ -330,16 +329,6 @@ public static class DroneUIFX
         return t01 < 0.5f
             ? Color.Lerp(COL_RED, COL_YELLOW, t01 * 2f)
             : Color.Lerp(COL_YELLOW, COL_GREEN, (t01 - 0.5f) * 2f);
-    }
-
-    /// 3-stop gradient: 0 = cyan (calm), 0.5 = amber, 1 = red (stressed). Used for anything
-    /// where high = bad (vibration, motor stress, latency in ms).
-    public static Color RampBadHigh(float t01)
-    {
-        t01 = Mathf.Clamp01(t01);
-        return t01 < 0.5f
-            ? Color.Lerp(COL_CYAN, COL_ORANGE, t01 * 2f)
-            : Color.Lerp(COL_ORANGE, COL_RED, (t01 - 0.5f) * 2f);
     }
 
     // ═════════════════════════════════════════════════════════════════════

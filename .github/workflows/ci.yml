@@ -22,13 +22,22 @@ jobs:
       - name: Ruff lint (if available)
         run: pip install ruff && ruff check Tools/MAVLink/ || true
 
-  # Unity build check — smoke test only (no editor license needed for compile check)
-  # If you have a Unity license, replace with game-ci/unity-builder
-  unity-smoke:
+  unity-builder:
     runs-on: ubuntu-latest
+    env:
+      UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+      UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+      UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
-      - name: Check C# syntax (dotnet)
-        run: |
-          echo "Skipping Unity build — add game-ci with UNITY_LICENSE if needed"
-          ls Unity/Assets/Scripts/UI/TelemetryGraph.cs
+      - name: Unity build skipped
+        if: ${{ env.UNITY_LICENSE == '' && (env.UNITY_EMAIL == '' || env.UNITY_PASSWORD == '') }}
+        run: echo "Unity build skipped — no license secret configured"
+      - name: Build Unity project
+        if: ${{ env.UNITY_LICENSE != '' || (env.UNITY_EMAIL != '' && env.UNITY_PASSWORD != '') }}
+        uses: game-ci/unity-builder@v4
+        with:
+          projectPath: Unity
+          unityVersion: auto
+          targetPlatform: StandaloneWindows64
+          buildMethod: BuildScript.Build

@@ -99,9 +99,6 @@ public class LatencyStats
     {
         latest = ms;
 
-        if (ms < min) min = ms;
-        if (ms > max) max = ms;
-
         samples.Enqueue(ms);
         sum  += ms;
         sum2 += ms * ms;

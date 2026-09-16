@@ -1315,42 +1315,6 @@ public class DroneDashboardUI : MonoBehaviour
         return style;
     }
 
-    TextMeshProUGUI OverlayValueChip(GameObject parent, string label, string initial, float width)
-    {
-        var go = new GameObject(label + "Chip", typeof(RectTransform), typeof(Image));
-        go.transform.SetParent(parent.transform, false);
-        go.AddComponent<LayoutElement>().preferredWidth = width;
-        var image = go.GetComponent<Image>();
-        image.sprite = DroneUIFX.RoundedRectSprite;
-        image.type = Image.Type.Sliced;
-        image.color = new Color(0.07f, 0.12f, 0.16f, 0.90f);
-        image.raycastTarget = false;
-        var hl = go.AddComponent<HorizontalLayoutGroup>();
-        hl.padding = new RectOffset(9, 9, 0, 0);
-        hl.spacing = 7;
-        hl.childAlignment = TextAnchor.MiddleLeft;
-        hl.childForceExpandWidth = true;
-        var labelGO = new GameObject("Label", typeof(RectTransform));
-        labelGO.transform.SetParent(go.transform, false);
-        var labelText = labelGO.AddComponent<TextMeshProUGUI>();
-        labelText.text = label;
-        labelText.fontSize = 10;
-        labelText.fontStyle = FontStyles.Bold;
-        labelText.characterSpacing = 3;
-        labelText.color = TXT_DIM;
-        labelText.alignment = TextAlignmentOptions.MidlineLeft;
-        labelGO.AddComponent<LayoutElement>().preferredWidth = 36;
-        var valueGO = new GameObject("Value", typeof(RectTransform));
-        valueGO.transform.SetParent(go.transform, false);
-        var value = valueGO.AddComponent<TextMeshProUGUI>();
-        value.text = initial;
-        value.fontSize = 12;
-        value.fontStyle = FontStyles.Bold;
-        value.color = TXT;
-        value.alignment = TextAlignmentOptions.MidlineRight;
-        return value;
-    }
-
     void SetViewportMode(DroneViewportCameraController.ViewMode mode, int selectedIndex)
     {
         viewportCamera?.SetMode(mode);

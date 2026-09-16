@@ -592,7 +592,6 @@ GameObject:
   - component: {fileID: 963194228}
   - component: {fileID: 963194227}
   - component: {fileID: 963194226}
-  - component: {fileID: 963194229}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -674,23 +673,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &963194229
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 963194225}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c2c21c707c16fc64386450b4332884ba, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::DroneCameraFollow
-  target: {fileID: 654473313}
-  distance: 6
-  height: 2
-  followSpeed: 8
-  rotationSpeed: 6
 --- !u!1 &974473240
 GameObject:
   m_ObjectHideFlags: 0
@@ -774,7 +756,6 @@ MonoBehaviour:
   packetLossText: {fileID: 0}
   alarmBannerText: {fileID: 0}
   alarmBannerBg: {fileID: 0}
-  batteryCardBg: {fileID: 0}
   hudHeadingText: {fileID: 0}
   centerHeadingText: {fileID: 0}
   hudAltText: {fileID: 0}
@@ -801,7 +782,6 @@ MonoBehaviour:
   batteryCriticalPercent: 15
   vibHighThreshold: 30
   vibCriticalThreshold: 60
-  vibGaugeMax: 80
   latencyGaugeMaxMs: 300
   latencyHighMs: 180
   latencyCriticalMs: 300
@@ -864,10 +844,6 @@ MonoBehaviour:
     homeAlt: 0
     homeNorth: 0
     homeEast: 0
-    motor1: 0
-    motor2: 0
-    motor3: 0
-    motor4: 0
     vibration_x: 0
     vibration_y: 0
     vibration_z: 0

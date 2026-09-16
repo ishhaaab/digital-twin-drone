@@ -48,8 +48,6 @@ public class DroneData
     public float homeLat, homeLon, homeAlt;
     public float homeNorth, homeEast;
 
-    public int motor1, motor2, motor3, motor4;
-
     public float vibration_x, vibration_y, vibration_z;
     public bool  armed;
     public string flight_mode = "UNKNOWN";

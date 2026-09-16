@@ -4,7 +4,7 @@ using TMPro;
 // DroneUIUpdater — aerospace GCS revision
 // Reads DroneDataReceiver every frame and pushes verified telemetry to:
 //   (a) legacy plain-text fields (kept intact for backward compat)
-//   (b) aerospace widgets (rings, bars, horizon, ribbon, graphs, pills)
+//   (b) aerospace widgets (bars, horizon, ribbon, graphs, pills)
 // All smoothing/colour lives in DroneUIFX/TelemetryGraph; this script is strictly "read → hand off".
 // Every field displayed here is traced to a real source (see header comments per section).
 public class DroneUIUpdater : MonoBehaviour
@@ -60,7 +60,6 @@ public class DroneUIUpdater : MonoBehaviour
     // ── ALARM ──────────────────────────────────────────────────────────
     [HideInInspector] public TextMeshProUGUI alarmBannerText;
     [HideInInspector] public UnityEngine.UI.Image alarmBannerBg;
-    [HideInInspector] public UnityEngine.UI.Image batteryCardBg; // legacy compile shim
 
     // ── HUD STRIP (center overlay) ─────────────────────────────────────
     [HideInInspector] public TextMeshProUGUI hudHeadingText;
@@ -100,13 +99,7 @@ public class DroneUIUpdater : MonoBehaviour
     [HideInInspector] public TextMeshProUGUI commandStatusText;
 
     // ── FX widgets ─────────────────────────────────────────────────────
-    [HideInInspector] public DroneUIFX.RadialGaugeFX   batteryRing;
     [HideInInspector] public DroneUIFX.HorizontalBarFX batteryBar;   // flat battery bar (text-first POWER readout)
-    [HideInInspector] public DroneUIFX.RadialGaugeFX   latencyGauge;
-    [HideInInspector] public DroneUIFX.RadialGaugeFX   satelliteRing;
-    [HideInInspector] public DroneUIFX.GradientBarFX   vibXBar;
-    [HideInInspector] public DroneUIFX.GradientBarFX   vibYBar;
-    [HideInInspector] public DroneUIFX.GradientBarFX   vibZBar;
     [HideInInspector] public DroneUIFX.CompassRibbonFX compassRibbon;
     [HideInInspector] public DroneUIFX.HorizonFX       horizon;
     [HideInInspector] public DroneUIFX.SignalBarsFX    gpsSignalBars;
@@ -121,7 +114,6 @@ public class DroneUIUpdater : MonoBehaviour
     public float vibHighThreshold = 30f;
     [Tooltip("Display CRITICAL threshold. Kept in lockstep with DroneDataReceiver.vibrationThreshold at runtime.")]
     public float vibCriticalThreshold = 60f;
-    public float vibGaugeMax = 80f;
 
     [Header("Link / Latency (UI presentation)")]
     public float latencyGaugeMaxMs = 300f;
@@ -210,11 +202,6 @@ public class DroneUIUpdater : MonoBehaviour
             else { latBg = new Color(0.26f,0.74f,0.52f,0.12f); latDot = DroneUIFX.AERO_GREEN; }
             latencyPill?.SetState(latBg, latDot, latLabel);
             linkSignalBars?.SetQuality01(1f - Mathf.Clamp01(ls.mean / latencyGaugeMaxMs));
-            if (latencyGauge != null)
-            {
-                latencyGauge.SetTarget01(1f - Mathf.Clamp01(ls.mean / latencyGaugeMaxMs));
-                if (latencyGauge.valueText != null) latencyGauge.valueText.text = $"{ls.mean:F0}";
-            }
             if (latencyGraphValue != null)
             {
                 latencyGraphValue.text = $"{ls.mean:F0} ms";
@@ -228,11 +215,9 @@ public class DroneUIUpdater : MonoBehaviour
             SetText(latencyText, "-- ms");
             SetText(latMeanText, "--"); SetText(latMinText, "--");
             SetText(latMaxText, "--"); SetText(latVarText, "--");
-            if (latencyGauge?.valueText != null) latencyGauge.valueText.text = "--";
             if (latencyGraphValue != null) latencyGraphValue.text = "-- ms";
             linkSignalBars?.SetQuality01(0f);
         }
-        latencyGauge?.SetAvailable(linkFresh);
 
         bool hasNewData = dataReceiver.newDataAvailable;
         if (hasNewData)
@@ -325,26 +310,6 @@ public class DroneUIUpdater : MonoBehaviour
 
         float gpsQuality = ComputeGpsQuality(d);
         gpsSignalBars?.SetQuality01(gpsQuality);
-        if (satelliteRing != null)
-        {
-            if (gpsFresh && d.satellites >= 0)
-            {
-                satelliteRing.SetTarget01(gpsQuality);
-                if (satelliteRing.valueText != null)
-                {
-                    satelliteRing.valueText.text = d.satellites.ToString();
-                    satelliteRing.valueText.color = gpsValid && d.satellites >= gpsDegradedSats
-                        ? Color.white : DroneUIFX.AERO_AMBER;
-                }
-            }
-            else if (satelliteRing.valueText != null)
-            {
-                satelliteRing.SetTarget01(0f);
-                satelliteRing.valueText.text = "--";
-                satelliteRing.valueText.color = COL_STALE;
-            }
-        }
-        satelliteRing?.SetAvailable(gpsFresh);
 
         bool systemFresh = dataReceiver.SystemStatusFresh;
         bool voltageValid = systemFresh && d.voltage >= 0f;
@@ -373,10 +338,8 @@ public class DroneUIUpdater : MonoBehaviour
         SetText(batteryPercentText, batteryValid ? $"{batt}%" : "--%");
         if (batteryValid)
         {
-            batteryRing?.SetTarget01(batt / 100f);
             batteryBar?.SetValue01(batt / 100f);
         }
-        batteryRing?.SetAvailable(batteryValid);
         batteryBar?.SetAvailable(batteryValid);
         if (batteryGraph != null)
         {
@@ -391,15 +354,6 @@ public class DroneUIUpdater : MonoBehaviour
         }
 
         bool vibrationFresh = dataReceiver.VibrationFresh;
-        vibXBar?.SetAvailable(vibrationFresh);
-        vibYBar?.SetAvailable(vibrationFresh);
-        vibZBar?.SetAvailable(vibrationFresh);
-        if (vibrationFresh)
-        {
-            vibXBar?.SetValue(d.vibration_x);
-            vibYBar?.SetValue(d.vibration_y);
-            vibZBar?.SetValue(d.vibration_z);
-        }
         UpdateVibrationField(vibXText, d.vibration_x, vibrationFresh);
         UpdateVibrationField(vibYText, d.vibration_y, vibrationFresh);
         UpdateVibrationField(vibZText, d.vibration_z, vibrationFresh);

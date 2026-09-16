@@ -31,10 +31,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Unity build skipped
-        if: ${{ env.UNITY_LICENSE == '' && (env.UNITY_EMAIL == '' || env.UNITY_PASSWORD == '') }}
+        if: ${{ env.UNITY_LICENSE == '' || env.UNITY_EMAIL == '' || env.UNITY_PASSWORD == '' }}
         run: echo "Unity build skipped — no license secret configured"
       - name: Build Unity project
-        if: ${{ env.UNITY_LICENSE != '' || (env.UNITY_EMAIL != '' && env.UNITY_PASSWORD != '') }}
+        if: ${{ env.UNITY_LICENSE != '' && env.UNITY_EMAIL != '' && env.UNITY_PASSWORD != '' }}
         uses: game-ci/unity-builder@v4
         with:
           projectPath: Unity

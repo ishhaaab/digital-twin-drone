@@ -78,6 +78,8 @@ public class DroneDashboardUI : MonoBehaviour
     DroneDataReceiver rx;
     DroneUIFX.UIFXAnimator fx;
     Canvas dashboardCanvas;
+    GameObject liveContentRoot;
+    GameObject replayContentRoot;
     RectTransform centerViewport;
     DroneViewportCameraController viewportCamera;
     DroneMapView mapView;
@@ -93,8 +95,8 @@ public class DroneDashboardUI : MonoBehaviour
     GameObject settingsPanel;
     readonly List<DroneUIFX.AeroButtonHoverFX> cameraModeStyles = new List<DroneUIFX.AeroButtonHoverFX>();
     readonly List<DroneUIFX.AeroButtonHoverFX> viewModeStyles = new List<DroneUIFX.AeroButtonHoverFX>();
-    DroneUIFX.AeroButtonHoverFX topCameraStyle;
-    DroneUIFX.AeroButtonHoverFX topMapStyle;
+    DroneUIFX.AeroButtonHoverFX liveNavStyle;
+    DroneUIFX.AeroButtonHoverFX replayNavStyle;
     DroneUIFX.AeroButtonHoverFX settingsStyle;
     DroneUIFX.AeroButtonHoverFX layersStyle;
     DroneUIFX.AeroButtonHoverFX fullscreenStyle;
@@ -168,17 +170,21 @@ public class DroneDashboardUI : MonoBehaviour
         tbrt.offsetMin = Vector2.zero; tbrt.offsetMax = new Vector2(0, 1);
         BuildTopBar(topBar);
 
-        var leftOuter = MakeImage("LeftPanel", root, new Color(0, 0, 0, 0),
+        liveContentRoot = new GameObject("LiveContent", typeof(RectTransform));
+        liveContentRoot.transform.SetParent(root, false);
+        Stretch((RectTransform)liveContentRoot.transform);
+
+        var leftOuter = MakeImage("LeftPanel", liveContentRoot.transform, new Color(0, 0, 0, 0),
             new Vector2(0, 0), new Vector2(LEFT_EDGE, 1),
             new Vector2(OUTER_PAD, OUTER_PAD), new Vector2(-GAP * 0.5f, -TOP_H - GAP));
         BuildLeftPanel(leftOuter);
 
-        var rightOuter = MakeImage("RightPanel", root, new Color(0, 0, 0, 0),
+        var rightOuter = MakeImage("RightPanel", liveContentRoot.transform, new Color(0, 0, 0, 0),
             new Vector2(RIGHT_EDGE, 0), new Vector2(1, 1),
             new Vector2(GAP * 0.5f, OUTER_PAD), new Vector2(-OUTER_PAD, -TOP_H - GAP));
         BuildRightPanel(rightOuter);
 
-        var center = MakeImage("CenterViewport", root, new Color(0.05f, 0.07f, 0.10f, 1f),
+        var center = MakeImage("CenterViewport", liveContentRoot.transform, new Color(0.05f, 0.07f, 0.10f, 1f),
             new Vector2(LEFT_EDGE, 0), new Vector2(RIGHT_EDGE, 1),
             new Vector2(GAP * 0.5f, BOTTOM_H + GAP),
             new Vector2(-GAP * 0.5f, -TOP_H - GAP));
@@ -189,11 +195,21 @@ public class DroneDashboardUI : MonoBehaviour
         BuildCenterHud(center);
         BuildAlarmBanner(center);
 
-        var bottomBar = MakeImage("TelemetryRail", root, new Color(0, 0, 0, 0),
+        var bottomBar = MakeImage("TelemetryRail", liveContentRoot.transform, new Color(0, 0, 0, 0),
             new Vector2(LEFT_EDGE, 0), new Vector2(RIGHT_EDGE, 0),
             new Vector2(GAP * 0.5f, OUTER_PAD),
             new Vector2(-GAP * 0.5f, BOTTOM_H));
         BuildBottomBar(bottomBar);
+
+        replayContentRoot = new GameObject("ReplayContent", typeof(RectTransform));
+        replayContentRoot.transform.SetParent(root, false);
+        var replayRT = (RectTransform)replayContentRoot.transform;
+        replayRT.anchorMin = Vector2.zero;
+        replayRT.anchorMax = Vector2.one;
+        replayRT.offsetMin = new Vector2(OUTER_PAD, OUTER_PAD);
+        replayRT.offsetMax = new Vector2(-OUTER_PAD, -TOP_H - GAP);
+        replayContentRoot.AddComponent<FlightRecordsView>().Build();
+        replayContentRoot.SetActive(false);
 
         Debug.Log("[DashboardUI] Aerospace GCS layout built.");
     }
@@ -210,6 +226,11 @@ public class DroneDashboardUI : MonoBehaviour
         hl.childControlHeight = true;
 
         CreateBrand(bar.transform);
+
+        liveNavStyle = TopNavTab(bar, "LIVE", 58f, true, true, () => SetPrimaryView(false));
+        TopNavTab(bar, "MISSION", 76f, false, false, null);
+        replayNavStyle = TopNavTab(bar, "REPLAY", 70f, false, true, () => SetPrimaryView(true));
+        TopNavTab(bar, "LOGS", 56f, false, false, null);
 
         TopBarSep(bar);
         var connPill = TopLiveField(bar, "MAVLINK", "CONNECTION LOST", 146, DroneUIFX.IconType.Connection, true);
@@ -239,9 +260,46 @@ public class DroneDashboardUI : MonoBehaviour
         spacer.transform.SetParent(bar.transform, false);
         spacer.AddComponent<LayoutElement>().flexibleWidth = 1;
 
-        topCameraStyle = TopUtility(bar, "Camera", DroneUIFX.IconType.Camera, true, () => SetMapView(false));
-        topMapStyle = TopUtility(bar, "Map", DroneUIFX.IconType.Map, false, () => SetMapView(true));
         settingsStyle = TopUtility(bar, "Settings", DroneUIFX.IconType.Settings, false, ToggleSettingsPanel);
+    }
+
+    DroneUIFX.AeroButtonHoverFX TopNavTab(GameObject bar, string label, float width, bool selected,
+        bool interactable, UnityEngine.Events.UnityAction callback)
+    {
+        var go = new GameObject(label + "Tab", typeof(RectTransform), typeof(Image), typeof(Button));
+        go.transform.SetParent(bar.transform, false);
+        var layout = go.AddComponent<LayoutElement>();
+        layout.preferredWidth = width;
+        layout.preferredHeight = 32;
+
+        var image = go.GetComponent<Image>();
+        image.sprite = DroneUIFX.RoundedRectSprite;
+        image.type = Image.Type.Sliced;
+        image.color = new Color(0, 0, 0, 0);
+
+        var button = go.GetComponent<Button>();
+        button.targetGraphic = image;
+        button.interactable = interactable;
+        if (interactable && callback != null) button.onClick.AddListener(callback);
+
+        var labelGO = new GameObject("Label", typeof(RectTransform));
+        labelGO.transform.SetParent(go.transform, false);
+        var text = labelGO.AddComponent<TextMeshProUGUI>();
+        text.text = label;
+        text.fontSize = 10.5f;
+        text.fontStyle = FontStyles.Bold;
+        text.characterSpacing = 4;
+        text.color = interactable ? TXT_SEC : new Color(TXT_DIM.r, TXT_DIM.g, TXT_DIM.b, 0.55f);
+        text.alignment = TextAlignmentOptions.Center;
+        text.raycastTarget = false;
+        Stretch(text.rectTransform);
+
+        var style = DroneUIFX.ApplyAeroButtonStyle(go, ACCENT);
+        style.normalTextColor = text.color;
+        style.SetSelected(selected);
+        style.SetInteractable(interactable);
+        labelGO.transform.SetAsLastSibling();
+        return style;
     }
 
     DroneUIFX.AeroButtonHoverFX TopUtility(GameObject bar, string name, DroneUIFX.IconType icon, bool active,
@@ -1301,6 +1359,17 @@ public class DroneDashboardUI : MonoBehaviour
         Debug.Log("[DashboardUI] Camera: " + mode);
     }
 
+    void SetPrimaryView(bool showReplay)
+    {
+        if (showReplay && viewportFullscreen) ToggleViewportFullscreen();
+        CloseLayerPopover();
+        if (liveContentRoot != null) liveContentRoot.SetActive(!showReplay);
+        if (replayContentRoot != null) replayContentRoot.SetActive(showReplay);
+        liveNavStyle?.SetSelected(!showReplay);
+        replayNavStyle?.SetSelected(showReplay);
+        Debug.Log("[DashboardUI] Primary view: " + (showReplay ? "REPLAY" : "LIVE"));
+    }
+
     void SetMapView(bool showMap)
     {
         showingMap = showMap;
@@ -1326,8 +1395,6 @@ public class DroneDashboardUI : MonoBehaviour
             viewModeStyles[0]?.SetSelected(!showMap);
             viewModeStyles[1]?.SetSelected(showMap);
         }
-        topCameraStyle?.SetSelected(!showMap);
-        topMapStyle?.SetSelected(showMap);
         Debug.Log("[DashboardUI] View: " + (showMap ? "MAP" : "3D"));
     }
 
@@ -1385,6 +1452,7 @@ public class DroneDashboardUI : MonoBehaviour
         CloseLayerPopover();
         bool show = !settingsPanel.activeSelf;
         settingsPanel.SetActive(show);
+        if (show) settingsPanel.transform.SetAsLastSibling();
         settingsStyle?.SetSelected(show);
         Debug.Log("[DashboardUI] Settings: " + (show ? "OPEN" : "CLOSED"));
     }
@@ -1425,13 +1493,13 @@ public class DroneDashboardUI : MonoBehaviour
     void BuildSettingsPanel(GameObject center)
     {
         settingsPanel = new GameObject("SettingsPanel", typeof(RectTransform), typeof(Image));
-        settingsPanel.transform.SetParent(center.transform, false);
+        settingsPanel.transform.SetParent(dashboardCanvas.transform, false);
         settingsPanel.GetComponent<Image>().color = CARD;
         StylePanel(settingsPanel);
         var rt = (RectTransform)settingsPanel.transform;
         rt.anchorMin = rt.anchorMax = new Vector2(1, 1);
         rt.pivot = new Vector2(1, 1);
-        rt.anchoredPosition = new Vector2(-10, -48);
+        rt.anchoredPosition = new Vector2(-18, -TOP_H - GAP);
         rt.sizeDelta = new Vector2(310, 192);
 
         var layout = settingsPanel.AddComponent<VerticalLayoutGroup>();

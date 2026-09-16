@@ -129,7 +129,7 @@ public static class DroneUIFX
         Drone, Connection, Mode, Lock, Signal, Gps, Heading, Clock,
         Camera, Map, Settings, Attitude, Position, Speed, Controls,
         Battery, Telemetry, System, Target, Layers, Lighting, Fullscreen,
-        Altitude
+        Altitude, Search, Calendar, Warning, ChevronDown, Check, Close, More
     }
 
     static readonly Dictionary<IconType, Sprite> iconSprites = new Dictionary<IconType, Sprite>();
@@ -151,7 +151,7 @@ public static class DroneUIFX
         return image;
     }
 
-    static Sprite GetIconSprite(IconType type)
+    public static Sprite GetIconSprite(IconType type)
     {
         if (iconSprites.TryGetValue(type, out Sprite sprite)) return sprite;
 
@@ -265,6 +265,22 @@ public static class DroneUIFX
                 Line(12, 38, 12, 52); Line(12, 52, 26, 52); Line(38, 52, 52, 52); Line(52, 52, 52, 38); break;
             case IconType.Altitude:
                 Line(32, 10, 32, 54); Line(32, 54, 23, 43); Line(32, 54, 41, 43); Line(16, 15, 48, 15); break;
+            case IconType.Search:
+                Circle(27, 37, 14); Line(37, 27, 52, 12, 6f); break;
+            case IconType.Calendar:
+                Rect(12, 12, 52, 48); Line(12, 38, 52, 38);
+                Line(22, 45, 22, 54); Line(42, 45, 42, 54); break;
+            case IconType.Warning:
+                Line(32, 54, 8, 12, 5.5f); Line(8, 12, 56, 12, 5.5f); Line(56, 12, 32, 54, 5.5f);
+                Line(32, 24, 32, 39, 5f); Circle(32, 17, 1.5f, 4f); break;
+            case IconType.ChevronDown:
+                Line(14, 40, 32, 22, 6f); Line(32, 22, 50, 40, 6f); break;
+            case IconType.Check:
+                Line(11, 31, 26, 17, 7f); Line(26, 17, 53, 47, 7f); break;
+            case IconType.Close:
+                Line(14, 14, 50, 50, 6f); Line(14, 50, 50, 14, 6f); break;
+            case IconType.More:
+                Circle(15, 32, 2f, 5f); Circle(32, 32, 2f, 5f); Circle(49, 32, 2f, 5f); break;
         }
 
         texture.Apply();

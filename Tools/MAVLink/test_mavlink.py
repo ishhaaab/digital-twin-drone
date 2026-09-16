@@ -16,8 +16,10 @@ Run from this folder:
 """
 
 import math
+import re
 import time
 import unittest
+from pathlib import Path
 
 from udp_simulator import SimDrone, build_parser
 from telemetry_protocol import (
@@ -52,6 +54,30 @@ def parse_line(line):
               "sensors_enabled", "sensors_health", "home_valid"):
         d[k] = int(d[k])
     return d
+
+
+class TelemetryContractTest(unittest.TestCase):
+    def test_csharp_index_map_matches_python_contract(self):
+        self.assertEqual(TELEMETRY_FIELD_COUNT, 37)
+        receiver_path = (
+            Path(__file__).resolve().parents[2]
+            / "Unity"
+            / "Assets"
+            / "Scripts"
+            / "Networking"
+            / "DroneDataReceiver.cs"
+        )
+        receiver_source = receiver_path.read_text(encoding="utf-8")
+        index_map = [
+            (int(index), name)
+            for index, name in re.findall(
+                r"^\s*//\s+(\d+)\s*=\s*([a-z][a-z0-9_]*)\s*$",
+                receiver_source,
+                flags=re.MULTILINE,
+            )
+        ]
+
+        self.assertEqual(index_map, list(enumerate(FIELD_NAMES)))
 
 
 class SimulatorSnapshotTest(unittest.TestCase):
